@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+/* Paleta de la app — la misma que se validó en los mockups (navbar blanca,
+   botón azul marino, rojo solo para el logo de Cercafe). Tailwind v4 lee
+   estos tokens con @theme y genera las utilidades bg-brand-navy, text-brand-red, etc. */
+@theme {
+  --color-brand-navy: #1d3557;
+  --color-brand-navy-hover: #16283f;
+  --color-brand-red: #e31e24;
+  --color-brand-navy-tint: #eaf0f6;
+
+  --font-sans: "Inter", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+body {
+  @apply bg-slate-50 text-slate-800;
+}

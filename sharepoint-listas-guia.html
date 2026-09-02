@@ -1,0 +1,708 @@
+<title>Listas de Recepción de Cerdos</title>
+<meta name="description" content="Guía paso a paso para crear en SharePoint las 9 listas que necesita la app de Recepción de Cerdos.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f4f6fa;
+    --surface: #ffffff;
+    --surface-2: #eef1f7;
+    --border: #d8dfea;
+    --border-strong: #b9c4d6;
+    --text: #1a2436;
+    --text-dim: #57647a;
+    --text-faint: #8592a8;
+    --navy: #1d3557;
+    --navy-hover: #16283f;
+    --navy-tint: #e9eff8;
+    --red: #c81e28;
+    --red-tint: #fbe9ea;
+    --green: #1f7a52;
+    --green-tint: #e6f4ee;
+    --amber: #92600a;
+    --amber-tint: #fbf0dd;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: "Inter", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    --radius: 10px;
+    --shadow: 0 1px 2px rgba(29, 53, 87, 0.06), 0 8px 24px -12px rgba(29, 53, 87, 0.18);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1826;
+      --surface: #142035;
+      --surface-2: #1a2841;
+      --border: #2a3b57;
+      --border-strong: #3b4f70;
+      --text: #e8edf6;
+      --text-dim: #a7b3c8;
+      --text-faint: #7c8aa3;
+      --navy: #4f7cb8;
+      --navy-hover: #6a92c8;
+      --navy-tint: #17253d;
+      --red: #f0666e;
+      --red-tint: #2e1a20;
+      --green: #4fbd8e;
+      --green-tint: #123226;
+      --amber: #e0ac52;
+      --amber-tint: #2e2413;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1826;
+    --surface: #142035;
+    --surface-2: #1a2841;
+    --border: #2a3b57;
+    --border-strong: #3b4f70;
+    --text: #e8edf6;
+    --text-dim: #a7b3c8;
+    --text-faint: #7c8aa3;
+    --navy: #4f7cb8;
+    --navy-hover: #6a92c8;
+    --navy-tint: #17253d;
+    --red: #f0666e;
+    --red-tint: #2e1a20;
+    --green: #4fbd8e;
+    --green-tint: #123226;
+    --amber: #e0ac52;
+    --amber-tint: #2e2413;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 { text-wrap: balance; font-weight: 700; letter-spacing: -0.01em; }
+  code, .mono { font-family: var(--mono); }
+
+  a { color: var(--navy); }
+
+  /* ---------- Header ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar-inner {
+    max-width: 1180px; margin: 0 auto;
+    padding: 14px 24px;
+    display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; flex: 1; min-width: 220px; }
+  .brand .swatch { width: 10px; height: 10px; border-radius: 2px; background: var(--red); flex: none; }
+  .brand h1 { font-size: 1.05rem; margin: 0; }
+  .brand span.sub { color: var(--text-dim); font-size: 0.82rem; }
+
+  .progress-wrap { display: flex; align-items: center; gap: 10px; min-width: 220px; }
+  .progress-track {
+    width: 160px; height: 8px; border-radius: 99px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .progress-fill { height: 100%; background: var(--green); width: 0%; transition: width .3s ease; }
+  #progress-label { font-size: 0.78rem; color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .reset-btn {
+    font: inherit; font-size: 0.76rem; color: var(--text-dim);
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 9px; cursor: pointer;
+  }
+  .reset-btn:hover { border-color: var(--border-strong); color: var(--text); }
+  .reset-btn:focus-visible, a:focus-visible, input:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--navy); outline-offset: 2px;
+  }
+
+  /* ---------- Shell ---------- */
+  .shell {
+    max-width: 1180px; margin: 0 auto;
+    display: grid; grid-template-columns: 240px minmax(0, 1fr);
+    gap: 32px;
+    padding: 28px 24px 80px;
+  }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; order: 2; }
+  }
+
+  nav.toc {
+    position: sticky; top: 66px; align-self: start;
+    display: flex; flex-direction: column; gap: 2px;
+    max-height: calc(100vh - 90px); overflow-y: auto;
+    padding-right: 4px;
+  }
+  nav.toc a {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    text-decoration: none; color: var(--text-dim);
+    font-size: 0.85rem; padding: 7px 10px; border-radius: 7px;
+  }
+  nav.toc a:hover { background: var(--surface-2); color: var(--text); }
+  nav.toc a .n { font-variant-numeric: tabular-nums; font-size: 0.72rem; color: var(--text-faint); }
+  nav.toc .toc-group-label {
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--text-faint); padding: 14px 10px 4px;
+  }
+  nav.toc .toc-group-label:first-child { padding-top: 2px; }
+
+  main { min-width: 0; }
+
+  .lede {
+    font-size: 1.02rem; color: var(--text-dim); max-width: 62ch; margin: 6px 0 28px;
+  }
+
+  section.block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 22px 24px 24px;
+    margin-bottom: 22px;
+    scroll-margin-top: 76px;
+  }
+  section.block > h2 {
+    font-size: 1.15rem; margin: 0 0 4px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  section.block > h2 code {
+    font-size: 0.95rem; background: var(--navy-tint); color: var(--navy);
+    padding: 2px 8px; border-radius: 6px; font-weight: 600;
+  }
+  section.block > p.desc { color: var(--text-dim); margin: 4px 0 16px; max-width: 68ch; }
+  .section-progress { font-size: 0.76rem; color: var(--text-faint); font-variant-numeric: tabular-nums; margin-left: auto; }
+
+  .callout {
+    border-radius: 8px; padding: 11px 14px; margin: 12px 0 18px;
+    font-size: 0.88rem; display: flex; gap: 10px; align-items: flex-start;
+    border: 1px solid transparent;
+  }
+  .callout .icon { flex: none; font-size: 0.95rem; line-height: 1.4; }
+  .callout.warn { background: var(--amber-tint); color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+  .callout.info { background: var(--navy-tint); color: var(--navy); border-color: color-mix(in srgb, var(--navy) 25%, transparent); }
+  .callout.danger { background: var(--red-tint); color: var(--red); border-color: color-mix(in srgb, var(--red) 30%, transparent); }
+  .callout b { font-weight: 700; }
+  .callout p { margin: 0; }
+  .callout p + p { margin-top: 6px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+  th, td { text-align: left; padding: 9px 12px; vertical-align: top; }
+  thead th {
+    background: var(--surface-2); color: var(--text-faint);
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;
+    position: sticky; top: 0;
+  }
+  tbody tr + tr td { border-top: 1px solid var(--border); }
+  tbody tr.done td { background: var(--green-tint); }
+  td.col-check { width: 34px; }
+  td.col-name code { font-weight: 600; }
+  td.col-type { color: var(--text-dim); white-space: nowrap; }
+  td.col-notes { color: var(--text-dim); }
+  .req-badge {
+    display: inline-block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em;
+    color: var(--red); background: var(--red-tint); border-radius: 4px; padding: 1px 6px; margin-left: 6px;
+  }
+
+  input[type="checkbox"].step {
+    width: 17px; height: 17px; accent-color: var(--green); cursor: pointer;
+  }
+  .list-toggle-row { display: flex; align-items: center; gap: 9px; margin: 2px 0 16px; }
+  .list-toggle-row label { font-size: 0.86rem; color: var(--text-dim); cursor: pointer; }
+
+  details.howto { border: 1px solid var(--border); border-radius: 8px; margin: 10px 0; background: var(--surface-2); }
+  details.howto summary {
+    cursor: pointer; padding: 11px 14px; font-weight: 600; font-size: 0.88rem;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  details.howto summary::-webkit-details-marker { display: none; }
+  details.howto summary::after { content: "+"; color: var(--text-faint); font-weight: 400; font-size: 1.1rem; }
+  details.howto[open] summary::after { content: "–"; }
+  details.howto .howto-body { padding: 2px 16px 14px; font-size: 0.88rem; color: var(--text-dim); }
+  details.howto ol, details.howto ul { padding-left: 1.2em; }
+  details.howto li + li { margin-top: 4px; }
+
+  .type-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 18px; margin: 6px 0 0; }
+  .type-legend .item { font-size: 0.83rem; color: var(--text-dim); }
+  .type-legend .item code { color: var(--text); }
+
+  footer.done-footer {
+    text-align: center; color: var(--text-faint); font-size: 0.85rem; padding: 20px 0 4px;
+  }
+</style>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="swatch" aria-hidden="true"></span>
+      <h1>Listas de SharePoint — Recepción de Cerdos</h1>
+      <span class="sub">Cercafe</span>
+    </div>
+    <div class="progress-wrap">
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <span id="progress-label">0 / 0 columnas</span>
+      <button class="reset-btn" id="reset-btn" type="button">Reiniciar</button>
+    </div>
+  </div>
+</div>
+
+<div class="shell">
+  <nav class="toc" id="toc" aria-label="Listas"></nav>
+  <main>
+    <p class="lede">
+      Sección 4 de <code>Arquitectura-App-Recepcion-Cerdos.md</code>, en formato de casillas para ir
+      marcando a medida que creas cada lista y columna en el sitio de SharePoint. Los nombres van
+      exactamente como los espera el código en <code>src/graph/</code> — cópialos tal cual, sin tildes
+      ni espacios.
+    </p>
+
+    <section class="block" id="antes-de-empezar">
+      <h2>Antes de empezar</h2>
+      <p class="desc">Cómo crear el sitio, una lista en blanco, y agregarle columnas — una sola vez, para las 9 listas.</p>
+
+      <details class="howto" open>
+        <summary>1. Crear el sitio (si todavía no existe)</summary>
+        <div class="howto-body">
+          <ol>
+            <li>Entra a <code>https://cercafe.sharepoint.com</code> con tu cuenta @cercafe.com.co.</li>
+            <li>Clic en <b>Crear sitio</b> → tipo <b>Sitio de equipo</b>.</li>
+            <li>Nómbralo de forma que se reconozca (por ejemplo "Recepción de Cerdos") y anota la URL que le asigna — la vas a necesitar como <code>VITE_SP_HOSTNAME</code> y <code>VITE_SP_SITE_PATH</code> en el archivo <code>.env.local</code> del proyecto.</li>
+          </ol>
+        </div>
+      </details>
+
+      <details class="howto">
+        <summary>2. Crear una lista en blanco</summary>
+        <div class="howto-body">
+          <ol>
+            <li>Dentro del sitio: rueda de <b>Configuración</b> (⚙) → <b>Contenido del sitio</b>.</li>
+            <li><b>Nuevo</b> → <b>Lista</b> → <b>Lista en blanco</b>.</li>
+            <li>Escribe el <b>nombre exacto</b> de la lista (columna "Nombre de la lista" de cada tabla más abajo) → <b>Crear</b>.</li>
+          </ol>
+        </div>
+      </details>
+
+      <details class="howto">
+        <summary>3. Agregar una columna</summary>
+        <div class="howto-body">
+          <ol>
+            <li>Abre la lista → en el encabezado de la tabla, clic en <b>+ Agregar columna</b> (extremo derecho).</li>
+            <li>Elige el tipo (ver la leyenda de tipos más abajo) → <b>Siguiente</b>.</li>
+            <li>Nombre: escríbelo exactamente como aparece en la tabla de esa lista — es lo único que no se puede corregir después sin volver a crear la columna (ver aviso abajo).</li>
+            <li>Configura lo que pida la columna de "Configuración" de la tabla → <b>Guardar</b>.</li>
+          </ol>
+        </div>
+      </details>
+
+      <div class="callout danger">
+        <span class="icon">⚠</span>
+        <div>
+          <p><b>No marques ninguna columna nueva como obligatoria.</b> La casilla "Requerir que esta columna contenga información" viene desmarcada por defecto — déjala así. La app decide qué es obligatorio en sus propios formularios; si SharePoint exige un valor que la app no siempre manda (por ejemplo una cantidad que solo aplica cuando cierta novedad ocurrió), la sincronización falla con un error en vez de guardar el registro.</p>
+        </div>
+      </div>
+
+      <div class="callout warn">
+        <span class="icon">✎</span>
+        <div>
+          <p><b>El nombre que le pongas a una columna la primera vez es definitivo.</b> SharePoint lo convierte en su "nombre interno" — es lo que usa el código para leer y escribir el campo. Si más adelante le cambias la etiqueta visible desde la interfaz, el nombre interno NO cambia (así que no rompe nada), pero si te equivocas al escribirlo la primera vez (una tilde, un espacio, mayúscula distinta), el nombre interno queda mal y hay que borrar la columna y crearla de nuevo — no se puede corregir editándola.</p>
+        </div>
+      </div>
+
+      <p style="font-size:0.86rem; color:var(--text-dim); margin-top:18px;">Tipos de columna que vas a usar, y cómo se llaman en el cuadro de diálogo de SharePoint al crear una:</p>
+      <div class="type-legend">
+        <div class="item"><code>Línea de texto</code> — texto corto de una sola línea.</div>
+        <div class="item"><code>Varias líneas de texto</code> — elige "Texto sin formato".</div>
+        <div class="item"><code>Número</code> — configura "Número de decimales" según la tabla.</div>
+        <div class="item"><code>Sí/No</code> — casilla de verdad/falso.</div>
+        <div class="item"><code>Fecha y hora</code> — elige el formato ("Solo fecha" o "Fecha y hora") según la tabla.</div>
+        <div class="item"><code>Elección</code> — escribe las opciones exactas, una por línea, en "Escriba cada opción en una línea aparte".</div>
+        <div class="item"><code>Búsqueda</code> — elige la lista de origen, columna a mostrar "Title", y marca "Permitir varios valores" solo cuando la tabla lo indique.</div>
+      </div>
+    </section>
+
+    <div id="sections"></div>
+
+    <footer class="done-footer" id="done-footer" hidden>Las 9 listas están marcadas como creadas. Con eso queda lista la sección 4 de la arquitectura — sigue con el registro en Entra ID (sección 5).</footer>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var LISTAS = [
+    {
+      id: "usuarios",
+      nombre: "Usuarios",
+      grupo: "Maestras",
+      desc: "Una fila por persona que inicia sesión. El Rol aquí es lo único que decide qué ve la interfaz — el permiso real lo dan los grupos de SharePoint.",
+      callouts: [
+        { tipo: "info", texto: "<b>Title</b> ya existe en toda lista nueva — úsala para el nombre completo, no hace falta crearla." },
+        { tipo: "warn", texto: "Recomendado: en <b>Configuración de lista → Columnas indizadas</b>, crea un índice sobre <code>Correo</code> — se consulta cada vez que alguien inicia sesión." }
+      ],
+      columnas: [
+        { nombre: "Correo", tipo: "Línea de texto", notas: "El correo @cercafe.com.co de la persona." },
+        { nombre: "Rol", tipo: "Elección", notas: "Opciones exactas: <code>Administrador</code>, <code>Supervisor</code>, <code>Auditor</code>, <code>Consultor</code>." },
+        { nombre: "AsociadosAsignados", tipo: "Búsqueda → Asociados", notas: "Columna a mostrar: Title. Marcar <b>Permitir varios valores</b>. Opcional." },
+        { nombre: "GranjasAsignadas", tipo: "Búsqueda → Granjas", notas: "Columna a mostrar: Title. Marcar <b>Permitir varios valores</b>. Opcional." },
+        { nombre: "Activo", tipo: "Sí/No", notas: "Predeterminado: Sí. Un usuario inactivo no puede iniciar sesión." }
+      ]
+    },
+    {
+      id: "asociados",
+      nombre: "Asociados",
+      grupo: "Maestras",
+      desc: "Tabla maestra más simple — sirve de patrón de referencia para Granjas y Vehiculos.",
+      callouts: [
+        { tipo: "info", texto: "<b>Title</b> ya existe — úsala para el nombre del asociado." }
+      ],
+      columnas: [
+        { nombre: "NIT", tipo: "Línea de texto", notas: "" },
+        { nombre: "Activo", tipo: "Sí/No", notas: "Predeterminado: Sí." }
+      ]
+    },
+    {
+      id: "granjas",
+      nombre: "Granjas",
+      grupo: "Maestras",
+      desc: "Cada granja pertenece a un Asociado.",
+      callouts: [
+        { tipo: "info", texto: "<b>Title</b> ya existe — úsala para el nombre de la granja." }
+      ],
+      columnas: [
+        { nombre: "AsociadoId", tipo: "Búsqueda → Asociados", notas: "Columna a mostrar: Title. Un solo valor (no marcar \"varios valores\")." },
+        { nombre: "Municipio", tipo: "Línea de texto", notas: "" },
+        { nombre: "Activa", tipo: "Sí/No", notas: "Predeterminado: Sí." }
+      ]
+    },
+    {
+      id: "vehiculos",
+      nombre: "Vehiculos",
+      grupo: "Maestras",
+      desc: "Las placas de los vehículos que transportan los lotes.",
+      callouts: [
+        { tipo: "info", texto: "<b>Title</b> ya existe — úsala para la placa." }
+      ],
+      columnas: [
+        { nombre: "AsociadoId", tipo: "Búsqueda → Asociados", notas: "Columna a mostrar: Title. Un solo valor. Opcional — un vehículo puede transportar para varios asociados." },
+        { nombre: "Activo", tipo: "Sí/No", notas: "Predeterminado: Sí." }
+      ]
+    },
+    {
+      id: "recepciones",
+      nombre: "Recepciones",
+      grupo: "Transaccionales",
+      desc: "Botón 1 — el encabezado de cada lote. Es la lista más grande: de aquí cuelgan Ubicaciones, NovedadesCorral y ConsolidadoTiquetes.",
+      callouts: [
+        { tipo: "info", texto: "<b>Title</b> ya existe — déjala vacía al crear la lista, la arma sola la app (\"Consecutivo · Fecha\")." },
+        { tipo: "warn", texto: "Recomendado: indiza <code>Consecutivo</code> — se consulta en cada sincronización para evitar duplicados." },
+        { tipo: "info", texto: "<code>HoraLlegadaVehiculo</code>/<code>HoraInicioDesembarque</code>/<code>HoraFinalDesembarque</code> son Fecha y hora, no Texto: SharePoint no tiene un tipo \"solo hora\". La app arma la fecha-hora completa con un offset fijo <code>-05:00</code> (Colombia), así que no depende de la hora del dispositivo — pero para que las vistas nativas de SharePoint también la muestren bien, configura la zona horaria del sitio como <b>(UTC-05:00) Bogotá, Lima, Quito</b> (Configuración del sitio → Configuración regional)." }
+      ],
+      columnas: [
+        { nombre: "Consecutivo", tipo: "Línea de texto", notas: "Se digita a mano en planta — la app <b>no</b> lo genera." },
+        { nombre: "NumeroOrden", tipo: "Línea de texto", notas: "" },
+        { nombre: "FechaRecepcion", tipo: "Fecha y hora", notas: "Formato: Solo fecha." },
+        { nombre: "HoraLlegadaVehiculo", tipo: "Fecha y hora", notas: "Formato: Fecha y hora. Ver nota de zona horaria arriba." },
+        { nombre: "HoraInicioDesembarque", tipo: "Fecha y hora", notas: "Formato: Fecha y hora." },
+        { nombre: "HoraFinalDesembarque", tipo: "Fecha y hora", notas: "Formato: Fecha y hora." },
+        { nombre: "AsociadoId", tipo: "Búsqueda → Asociados", notas: "Columna a mostrar: Title. Un solo valor." },
+        { nombre: "GranjaId", tipo: "Búsqueda → Granjas", notas: "Columna a mostrar: Title. Un solo valor." },
+        { nombre: "NumeroTotalCerdos", tipo: "Número", notas: "Número de decimales: 0." },
+        { nombre: "PesoPromedioGranja", tipo: "Número", notas: "Número de decimales: 1." },
+        { nombre: "PlacaVehiculoId", tipo: "Búsqueda → Vehiculos", notas: "Columna a mostrar: Title. Un solo valor." },
+        { nombre: "GuiaSanitariaICA", tipo: "Línea de texto", notas: "" },
+        { nombre: "RemisionGranja", tipo: "Línea de texto", notas: "" },
+        { nombre: "QRLote", tipo: "Sí/No", notas: "" },
+        { nombre: "CertificadoInmunocastracion", tipo: "Sí/No", notas: "" },
+        { nombre: "CoincideGuiaICAvsQR", tipo: "Sí/No", notas: "" },
+        { nombre: "NovLlegadaLesionados", tipo: "Sí/No", notas: "" },
+        { nombre: "NovLlegadaCantLesionados", tipo: "Número", notas: "Número de decimales: 0." },
+        { nombre: "NovLlegadaCaidos", tipo: "Sí/No", notas: "" },
+        { nombre: "NovLlegadaCantCaidos", tipo: "Número", notas: "Número de decimales: 0." },
+        { nombre: "NovLlegadaAgitados", tipo: "Sí/No", notas: "" },
+        { nombre: "NovLlegadaCantAgitados", tipo: "Número", notas: "Número de decimales: 0." },
+        { nombre: "FortuitoMuertoTransporte", tipo: "Sí/No", notas: "" },
+        { nombre: "FortuitoCantMuertoTransporte", tipo: "Número", notas: "Número de decimales: 0." },
+        { nombre: "FortuitoMuertoDesembarque", tipo: "Sí/No", notas: "" },
+        { nombre: "FortuitoCantMuertoDesembarque", tipo: "Número", notas: "Número de decimales: 0." },
+        { nombre: "SuciedadCerdos", tipo: "Elección", notas: "Opciones exactas: <code>Alta</code>, <code>Baja</code>." },
+        { nombre: "Observaciones", tipo: "Varias líneas de texto", notas: "Tipo de texto: sin formato." },
+        { nombre: "EstadoLote", tipo: "Elección", notas: "Opciones exactas: <code>En proceso</code>, <code>Completo</code>. Predeterminado: En proceso." },
+        { nombre: "EstadoSync", tipo: "Elección", notas: "Opciones exactas: <code>Pendiente</code>, <code>Sincronizada</code>, <code>ConflictoConsecutivo</code>. Predeterminado: Pendiente." },
+        { nombre: "CapturadaEn", tipo: "Fecha y hora", notas: "Formato: Fecha y hora." },
+        { nombre: "RecibidaEn", tipo: "Fecha y hora", notas: "Formato: Fecha y hora." }
+      ]
+    },
+    {
+      id: "ubicaciones",
+      nombre: "Ubicaciones",
+      grupo: "Transaccionales",
+      desc: "Botón 2 — un registro por lote, referencia a su Recepción por texto plano (no por Búsqueda).",
+      callouts: [
+        { tipo: "danger", texto: "<b>Title</b>: el código nunca la llena. Edítala (Configuración de lista → columna Title) y <b>desmarca</b> \"Requerir que esta columna contenga información\" — si no, SharePoint rechaza cada registro nuevo por no traer Título." },
+        { tipo: "info", texto: "<code>RecepcionId</code> es <b>texto</b>, no Búsqueda: guarda el id real que SharePoint le asignó a la Recepción, para que Ubicación se pueda capturar sin conexión antes de que exista esa relación formal." },
+        { tipo: "warn", texto: "Recomendado: indiza <code>RecepcionId</code>." }
+      ],
+      columnas: [
+        { nombre: "RecepcionId", tipo: "Línea de texto", notas: "Guarda el id (número) de la Recepción — no es Búsqueda." },
+        { nombre: "PesoPromedioPlanta", tipo: "Número", notas: "Número de decimales: 1." },
+        { nombre: "CorralesDesignados", tipo: "Línea de texto", notas: "" },
+        { nombre: "CoincidenciaNumAnimales", tipo: "Sí/No", notas: "" },
+        { nombre: "Observaciones", tipo: "Varias líneas de texto", notas: "Tipo de texto: sin formato." },
+        { nombre: "EstadoSync", tipo: "Elección", notas: "Opciones exactas: <code>Pendiente</code>, <code>Sincronizada</code>." },
+        { nombre: "CapturadaEn", tipo: "Fecha y hora", notas: "Formato: Fecha y hora." },
+        { nombre: "RecibidaEn", tipo: "Fecha y hora", notas: "Formato: Fecha y hora." }
+      ]
+    },
+    {
+      id: "novedadescorral",
+      nombre: "NovedadesCorral",
+      grupo: "Transaccionales",
+      desc: "Botón 3 — lo observado durante el reposo del lote en corral.",
+      callouts: [
+        { tipo: "danger", texto: "<b>Title</b>: igual que en Ubicaciones — desmárcala como obligatoria." },
+        { tipo: "info", texto: "<code>RecepcionId</code> es texto, no Búsqueda (mismo motivo que en Ubicaciones)." },
+        { tipo: "warn", texto: "Recomendado: indiza <code>RecepcionId</code>." }
+      ],
+      columnas: [
+        { nombre: "RecepcionId", tipo: "Línea de texto", notas: "Guarda el id (número) de la Recepción — no es Búsqueda." },
+        { nombre: "MuertoReposo", tipo: "Sí/No", notas: "" },
+        { nombre: "CantMuertoReposo", tipo: "Número", notas: "Número de decimales: 0." },
+        { nombre: "ComportamientoSexual", tipo: "Sí/No", notas: "" },
+        { nombre: "DisponibilidadAgua", tipo: "Sí/No", notas: "" },
+        { nombre: "EstadoSync", tipo: "Elección", notas: "Opciones exactas: <code>Pendiente</code>, <code>Sincronizada</code>." },
+        { nombre: "CapturadaEn", tipo: "Fecha y hora", notas: "Formato: Fecha y hora." },
+        { nombre: "RecibidaEn", tipo: "Fecha y hora", notas: "Formato: Fecha y hora." }
+      ]
+    },
+    {
+      id: "consolidadotiquetes",
+      nombre: "ConsolidadoTiquetes",
+      grupo: "Transaccionales",
+      desc: "Botón 4 — una fila por CADA ANIMAL con novedad. La app la llena sola (una fila por unidad de cantidad); aquí solo se le agrega Tiquete y Destino.",
+      callouts: [
+        { tipo: "danger", texto: "<b>Title</b>: igual que en Ubicaciones — desmárcala como obligatoria." },
+        { tipo: "info", texto: "<code>RecepcionId</code> es texto, no Búsqueda. Las filas las crea el propio proceso de sincronización, nunca se capturan a mano ni sin conexión." },
+        { tipo: "warn", texto: "Recomendado: indiza <code>RecepcionId</code> — se consulta cada vez que se abre la pantalla Consolidado." }
+      ],
+      columnas: [
+        { nombre: "RecepcionId", tipo: "Línea de texto", notas: "Guarda el id (número) de la Recepción — no es Búsqueda." },
+        { nombre: "GrupoNovedad", tipo: "Elección", notas: "Opciones exactas: <code>Fortuito</code>, <code>Novedad de llegada</code>." },
+        { nombre: "TipoNovedad", tipo: "Elección", notas: "Opciones exactas: <code>Muerto en Transporte</code>, <code>Muerto en Desembarque</code>, <code>Muerto en Reposo</code>, <code>Lesionado</code>, <code>Caído</code>, <code>Agitado</code>." },
+        { nombre: "NumeroAnimalEnLote", tipo: "Número", notas: "Número de decimales: 0. Ej: 2 (de 3)." },
+        { nombre: "Tiquete", tipo: "Línea de texto", notas: "Lo diligencia la persona en la pantalla Consolidado." },
+        { nombre: "Destino", tipo: "Elección", notas: "Opciones exactas: <code>Procesado</code>, <code>Decomisado</code>." },
+        { nombre: "Factura", tipo: "Línea de texto", notas: "Solo aplica a Fortuitos." },
+        { nombre: "FechaDespacho", tipo: "Fecha y hora", notas: "Formato: Solo fecha." },
+        { nombre: "FechaBeneficio", tipo: "Fecha y hora", notas: "Formato: Solo fecha." },
+        { nombre: "EstadoTiquete", tipo: "Elección", notas: "Opciones exactas: <code>Pendiente</code>, <code>Completo</code>. Predeterminado: Pendiente. Lo calcula la app sola." },
+        { nombre: "EstadoSync", tipo: "Elección", notas: "Opciones exactas: <code>Pendiente</code>, <code>Sincronizada</code>." },
+        { nombre: "CapturadaEn", tipo: "Fecha y hora", notas: "Formato: Fecha y hora." },
+        { nombre: "RecibidaEn", tipo: "Fecha y hora", notas: "Formato: Fecha y hora." }
+      ]
+    },
+    {
+      id: "recepcionlog",
+      nombre: "RecepcionLog",
+      grupo: "Auditoría",
+      desc: "Bitácora de quién sincronizó qué y cuándo — hoy solo se escribe, todavía no tiene pantalla propia para consultarla.",
+      callouts: [
+        { tipo: "danger", texto: "<b>Title</b>: igual que en Ubicaciones — desmárcala como obligatoria." }
+      ],
+      columnas: [
+        { nombre: "RecepcionId", tipo: "Línea de texto", notas: "El id real de la Recepción a la que corresponde esta entrada." },
+        { nombre: "Usuario", tipo: "Línea de texto", notas: "Correo de quien sincronizó." },
+        { nombre: "Accion", tipo: "Línea de texto", notas: "" },
+        { nombre: "DetalleJson", tipo: "Varias líneas de texto", notas: "Tipo de texto: sin formato." },
+        { nombre: "CreadoEn", tipo: "Fecha y hora", notas: "Formato: Fecha y hora." }
+      ]
+    }
+  ];
+
+  var STORAGE_KEY = "recepcion-cerdos-sp-checklist-v1";
+
+  function loadChecked() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) { return {}; }
+  }
+  function saveChecked(state) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+
+  var checked = loadChecked();
+  var totalSteps = 0;
+  LISTAS.forEach(function (l) { totalSteps += l.columnas.length; });
+
+  function stepId(listaId, colIndex) { return listaId + ":" + colIndex; }
+
+  function countDone() {
+    var n = 0;
+    Object.keys(checked).forEach(function (k) { if (checked[k]) n++; });
+    return n;
+  }
+
+  function updateProgress() {
+    var done = countDone();
+    var pct = totalSteps ? Math.round((done / totalSteps) * 100) : 0;
+    document.getElementById("progress-fill").style.width = pct + "%";
+    document.getElementById("progress-label").textContent = done + " / " + totalSteps + " columnas";
+
+    LISTAS.forEach(function (l) {
+      var listDone = 0;
+      l.columnas.forEach(function (c, i) { if (checked[stepId(l.id, i)]) listDone++; });
+      var navBadge = document.getElementById("nav-count-" + l.id);
+      if (navBadge) navBadge.textContent = listDone + "/" + l.columnas.length;
+      var navLink = document.getElementById("nav-link-" + l.id);
+      if (navLink) navLink.style.color = listDone === l.columnas.length ? "var(--green)" : "";
+      var secBadge = document.getElementById("sec-count-" + l.id);
+      if (secBadge) secBadge.textContent = listDone + " / " + l.columnas.length + " columnas creadas";
+    });
+
+    var footer = document.getElementById("done-footer");
+    if (footer) footer.hidden = done !== totalSteps;
+  }
+
+  function toggleStep(id, on) {
+    checked[id] = on;
+    saveChecked(checked);
+    updateProgress();
+  }
+
+  function buildNav() {
+    var nav = document.getElementById("toc");
+    var groups = {};
+    var order = [];
+    LISTAS.forEach(function (l) {
+      if (!groups[l.grupo]) { groups[l.grupo] = []; order.push(l.grupo); }
+      groups[l.grupo].push(l);
+    });
+
+    var introA = document.createElement("a");
+    introA.href = "#antes-de-empezar";
+    introA.textContent = "Antes de empezar";
+    nav.appendChild(introA);
+
+    order.forEach(function (grupo) {
+      var label = document.createElement("div");
+      label.className = "toc-group-label";
+      label.textContent = grupo;
+      nav.appendChild(label);
+
+      groups[grupo].forEach(function (l) {
+        var a = document.createElement("a");
+        a.href = "#" + l.id;
+        a.id = "nav-link-" + l.id;
+        var span = document.createElement("span");
+        span.textContent = l.nombre;
+        var n = document.createElement("span");
+        n.className = "n";
+        n.id = "nav-count-" + l.id;
+        a.appendChild(span);
+        a.appendChild(n);
+        nav.appendChild(a);
+      });
+    });
+  }
+
+  function calloutIcon(tipo) {
+    if (tipo === "danger") return "⚠";
+    if (tipo === "warn") return "↻";
+    return "ℹ";
+  }
+
+  function buildSections() {
+    var root = document.getElementById("sections");
+    LISTAS.forEach(function (l) {
+      var section = document.createElement("section");
+      section.className = "block";
+      section.id = l.id;
+
+      var h2 = document.createElement("h2");
+      h2.innerHTML = "<code>" + l.nombre + "</code> <span class='section-progress' id='sec-count-" + l.id + "'></span>";
+      section.appendChild(h2);
+
+      var p = document.createElement("p");
+      p.className = "desc";
+      p.textContent = l.desc;
+      section.appendChild(p);
+
+      (l.callouts || []).forEach(function (c) {
+        var div = document.createElement("div");
+        div.className = "callout " + c.tipo;
+        div.innerHTML = "<span class='icon'>" + calloutIcon(c.tipo) + "</span><div><p>" + c.texto + "</p></div>";
+        section.appendChild(div);
+      });
+
+      var tableScroll = document.createElement("div");
+      tableScroll.className = "table-scroll";
+      var table = document.createElement("table");
+      table.innerHTML =
+        "<thead><tr><th></th><th>Columna</th><th>Tipo</th><th>Configuración / notas</th></tr></thead>";
+      var tbody = document.createElement("tbody");
+
+      l.columnas.forEach(function (col, i) {
+        var id = stepId(l.id, i);
+        var tr = document.createElement("tr");
+        if (checked[id]) tr.className = "done";
+
+        var tdCheck = document.createElement("td");
+        tdCheck.className = "col-check";
+        var input = document.createElement("input");
+        input.type = "checkbox";
+        input.className = "step";
+        input.checked = !!checked[id];
+        input.setAttribute("aria-label", "Marcar " + col.nombre + " como creada");
+        input.addEventListener("change", function () {
+          tr.className = input.checked ? "done" : "";
+          toggleStep(id, input.checked);
+        });
+        tdCheck.appendChild(input);
+
+        var tdName = document.createElement("td");
+        tdName.className = "col-name";
+        tdName.innerHTML = "<code>" + col.nombre + "</code>";
+
+        var tdType = document.createElement("td");
+        tdType.className = "col-type";
+        tdType.textContent = col.tipo;
+
+        var tdNotes = document.createElement("td");
+        tdNotes.className = "col-notes";
+        tdNotes.innerHTML = col.notas || "—";
+
+        tr.appendChild(tdCheck);
+        tr.appendChild(tdName);
+        tr.appendChild(tdType);
+        tr.appendChild(tdNotes);
+        tbody.appendChild(tr);
+      });
+
+      table.appendChild(tbody);
+      tableScroll.appendChild(table);
+      section.appendChild(tableScroll);
+      root.appendChild(section);
+    });
+  }
+
+  document.getElementById("reset-btn").addEventListener("click", function () {
+    if (!confirm("¿Reiniciar todas las casillas marcadas?")) return;
+    checked = {};
+    saveChecked(checked);
+    document.querySelectorAll("input.step").forEach(function (i) {
+      i.checked = false;
+      i.closest("tr").className = "";
+    });
+    updateProgress();
+  });
+
+  buildNav();
+  buildSections();
+  updateProgress();
+})();
+</script>
