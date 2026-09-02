@@ -62,6 +62,17 @@ export class RecepcionCerdosDB extends Dexie {
 
       meta: 'clave',
     })
+
+    // v2: agrega el índice CapturadaEn en recepciones. Ubicacion.tsx y
+    // NovedadesCorral.tsx ordenan las recepciones por esa columna
+    // (db.recepciones.orderBy('CapturadaEn')) para mostrar primero las más
+    // recientes en el selector de "a qué recepción pertenece" — sin el
+    // índice, Dexie lanza un SchemaError no capturado y esas dos pantallas
+    // quedan en blanco. Dexie migra solo, sin perder datos, cualquier
+    // dispositivo que ya hubiera creado la versión 1 de esta base local.
+    this.version(2).stores({
+      recepciones: 'id, spId, Consecutivo, EstadoSync, FechaRecepcion, CapturadaEn',
+    })
   }
 }
 
