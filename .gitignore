@@ -1,0 +1,28 @@
+# dependencias
+node_modules
+
+# build
+dist
+dist-ssr
+*.local
+
+# entorno (contiene los IDs de Entra ID / SharePoint de cada despliegue)
+.env
+.env.local
+.env.*.local
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
