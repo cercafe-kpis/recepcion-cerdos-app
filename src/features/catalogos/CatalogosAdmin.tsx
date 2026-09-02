@@ -3,21 +3,23 @@ import clsx from 'clsx'
 import { AsociadosAdmin } from './AsociadosAdmin'
 import { GranjasAdmin } from './GranjasAdmin'
 import { VehiculosAdmin } from './VehiculosAdmin'
+import { UsuariosAdmin } from './UsuariosAdmin'
 
-type Pestana = 'asociados' | 'granjas' | 'vehiculos'
+type Pestana = 'asociados' | 'granjas' | 'vehiculos' | 'usuarios'
 
 const PESTANAS: Array<{ id: Pestana; etiqueta: string }> = [
   { id: 'asociados', etiqueta: 'Asociados' },
   { id: 'granjas', etiqueta: 'Granjas' },
   { id: 'vehiculos', etiqueta: 'Vehículos' },
+  { id: 'usuarios', etiqueta: 'Usuarios' },
 ]
 
 /**
- * Une las 3 pantallas de administración de maestros bajo una sola ruta
+ * Une las 4 pantallas de administración de maestros bajo una sola ruta
  * (/admin/asociados, enlazada desde Inicio.tsx como "Administrar Asociados,
  * Granjas y Vehículos"). Cada pestaña es un componente independiente — ver
- * AsociadosAdmin.tsx (la pantalla de referencia original), GranjasAdmin.tsx
- * y VehiculosAdmin.tsx.
+ * AsociadosAdmin.tsx (la pantalla de referencia original), GranjasAdmin.tsx,
+ * VehiculosAdmin.tsx y UsuariosAdmin.tsx.
  */
 export function CatalogosAdmin() {
   const [pestana, setPestana] = useState<Pestana>('asociados')
@@ -43,6 +45,7 @@ export function CatalogosAdmin() {
       {pestana === 'asociados' && <AsociadosAdmin />}
       {pestana === 'granjas' && <GranjasAdmin />}
       {pestana === 'vehiculos' && <VehiculosAdmin />}
+      {pestana === 'usuarios' && <UsuariosAdmin />}
     </div>
   )
 }
