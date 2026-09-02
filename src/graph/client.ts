@@ -39,9 +39,11 @@ async function graphFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
+      Prefer: 'HonorNonIndexedQueriesWarningMayFailRandomly',
       ...init?.headers,
     },
   })
+  
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     throw new Error(`Graph ${init?.method ?? 'GET'} ${path} → ${res.status}: ${body}`)
