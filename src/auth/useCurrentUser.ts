@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMsal } from '@azure/msal-react'
+import { InteractionStatus } from '@azure/msal-browser'
 import { db } from '../offline/db'
 import { buscarUsuarioPorCorreo } from '../graph/lists'
 import type { Usuario } from '../types/models'
@@ -24,7 +25,7 @@ interface EstadoUsuarioActual {
  * — ver Arquitectura-App-Recepcion-Cerdos.md sección 6.
  */
 export function useCurrentUser(): EstadoUsuarioActual {
-  const { accounts } = useMsal()
+  const { accounts, inProgress } = useMsal()
   const correo = accounts[0]?.username
 
   const [usuario, setUsuario] = useState<Usuario>()
@@ -32,6 +33,11 @@ export function useCurrentUser(): EstadoUsuarioActual {
   const [error, setError] = useState<string>()
 
   useEffect(() => {
+    // Espera a que MSAL termine de procesar el redirect de login antes de
+    // consultar el usuario — si no, la primera consulta después de iniciar
+    // sesión puede fallar por una condición de carrera y mostrar el mensaje
+    // de "sin conexión" aunque sí haya internet.
+    if (inProgress !== InteractionStatus.None) return
     if (!correo) {
       setCargando(false)
       return
@@ -69,7 +75,7 @@ export function useCurrentUser(): EstadoUsuarioActual {
     return () => {
       cancelado = true
     }
-  }, [correo])
+  }, [correo, inProgress])
 
   return { usuario, cargando, error }
 }
