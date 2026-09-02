@@ -9,7 +9,7 @@ import { Recepcion } from './features/recepcion/Recepcion'
 import { Ubicacion } from './features/ubicacion/Ubicacion'
 import { NovedadesCorral } from './features/novedades-corral/NovedadesCorral'
 import { Consolidado } from './features/consolidado/Consolidado'
-import { AsociadosAdmin } from './features/catalogos/AsociadosAdmin'
+import { CatalogosAdmin } from './features/catalogos/CatalogosAdmin'
 import { useCurrentUser } from './auth/useCurrentUser'
 import { descargarMaestros } from './offline/syncService'
 
@@ -100,7 +100,7 @@ function AppAutenticada() {
             path="/admin/asociados"
             element={
               <ProtegidoPorRol usuario={usuario} permitido={['Administrador']}>
-                <AsociadosAdmin />
+                <CatalogosAdmin />
               </ProtegidoPorRol>
             }
           />
