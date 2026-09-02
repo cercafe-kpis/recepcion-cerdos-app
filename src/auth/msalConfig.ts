@@ -23,4 +23,12 @@ export const msalConfig: Configuration = {
 
 // El único permiso que necesita esta app contra Graph — el mismo que ya
 // tiene consentido el registro compartido (Sites.ReadWrite.All, ver README).
-export const graphScopes = ['Sites.ReadWrite.All', 'User.Read']
+// Como URI de recurso completa (no solo el nombre del scope) para que
+// coincida exactamente con el formato que usa HGP7 contra el mismo
+// registro de Entra ID — evita que MSAL trate una petición como "distinta"
+// de la que ya se autenticó y tenga que ir a confirmar con Microsoft en
+// vez de usar el token que ya tiene en caché.
+export const graphScopes = [
+  'https://graph.microsoft.com/Sites.ReadWrite.All',
+  'https://graph.microsoft.com/User.Read',
+]
