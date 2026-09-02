@@ -7,26 +7,66 @@ const GRAPH_ROOT = 'https://graph.microsoft.com/v1.0'
 const SP_HOSTNAME = import.meta.env.VITE_SP_HOSTNAME as string
 const SP_SITE_PATH = import.meta.env.VITE_SP_SITE_PATH as string
 
+const TOKEN_TIMEOUT_MS = 15000
+
 /**
- * Pide un token de acceso para Graph. Si la sesión silenciosa falla (token
- * vencido, primera vez), cae a un login interactivo — esto solo puede pasar
- * con conexión, así que la capa offline (src/offline) nunca debe depender de
- * esta función para leer datos ya cacheados.
+ * Envuelve una promesa con un límite de tiempo propio. No cancela la promesa
+ * original — MSAL no expone una forma de abortar acquireTokenSilent — pero
+ * evita que la app se quede esperando para siempre una respuesta que nunca
+ * llega: con señal débil, la técnica interna de MSAL para renovar el token
+ * (un iframe oculto contra Microsoft) puede quedarse colgada en vez de
+ * fallar rápido. Mismo patrón que ya usa la app HGP7 para este mismo
+ * problema.
+ */
+function conLimiteDeTiempo<T>(promesa: Promise<T>, ms: number, mensaje: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const temporizador = setTimeout(() => reject(new Error(mensaje)), ms)
+    promesa.then(
+      (valor) => {
+        clearTimeout(temporizador)
+        resolve(valor)
+      },
+      (error) => {
+        clearTimeout(temporizador)
+        reject(error)
+      },
+    )
+  })
+}
+
+/**
+ * Pide un token de acceso para Graph usando SOLO renovación silenciosa —
+ * NUNCA abre una ventana emergente ni redirige la página por su cuenta. Esa
+ * es la diferencia clave con una versión anterior de esta función: cada vez
+ * que la renovación silenciosa fallaba (por ejemplo porque el navegador
+ * bloquea las cookies de terceros que esa técnica usa como respaldo, algo
+ * cada vez más común incluso fuera de InPrivate), esta función abría
+ * automáticamente `acquireTokenPopup`/`loginPopup` — eso era la ventanita
+ * en blanco que se veía y se cerraba sola en cada carga de la app.
+ *
+ * El patrón correcto (el mismo que ya usa HGP7, ver su useAuthToken.ts) es
+ * que una renovación automática de token en segundo plano NUNCA debe
+ * interrumpir a quien usa la app: si falla, se lanza un error controlado y
+ * quien llama decide qué hacer — en esta app, useCurrentUser.ts ya cae a la
+ * copia local en Dexie cuando esto pasa. Un login interactivo de verdad
+ * solo debe pasar cuando la persona lo pide explícitamente: tocando
+ * "Iniciar sesión" en PantallaLogin, o "Salir" y volviendo a entrar.
  */
 async function getAccessToken(): Promise<string> {
   const account = msalInstance.getActiveAccount()
   if (!account) {
-    const result = await msalInstance.loginPopup({ scopes: graphScopes })
-    msalInstance.setActiveAccount(result.account)
-    return result.accessToken
+    throw new Error('No hay una sesión activa de Microsoft. Inicia sesión de nuevo.')
   }
   try {
-    const result = await msalInstance.acquireTokenSilent({ scopes: graphScopes, account })
+    const result = await conLimiteDeTiempo(
+      msalInstance.acquireTokenSilent({ scopes: graphScopes, account }),
+      TOKEN_TIMEOUT_MS,
+      'Se agotó el tiempo de espera confirmando la sesión con Microsoft.',
+    )
     return result.accessToken
   } catch (err) {
     if (err instanceof InteractionRequiredAuthError) {
-      const result = await msalInstance.acquireTokenPopup({ scopes: graphScopes })
-      return result.accessToken
+      throw new Error('Tu sesión de Microsoft venció. Cierra sesión (botón "Salir") y vuelve a iniciar sesión.')
     }
     throw err
   }
@@ -39,11 +79,15 @@ async function graphFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
+      // Las columnas que esta app usa en $filter (Correo, Consecutivo,
+      // RecepcionId) no están indexadas en SharePoint por defecto. Sin este
+      // header, Graph responde 400 Bad Request apenas la lista supera un
+      // umbral de elementos (o incluso antes, según la lista) — con él,
+      // permite la consulta aunque no sea la más eficiente posible.
       Prefer: 'HonorNonIndexedQueriesWarningMayFailRandomly',
       ...init?.headers,
     },
   })
-  
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     throw new Error(`Graph ${init?.method ?? 'GET'} ${path} → ${res.status}: ${body}`)
