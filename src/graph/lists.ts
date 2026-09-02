@@ -6,13 +6,19 @@ import type {
   NovedadCorral,
   Recepcion,
   RecepcionLogEntry,
+  Rol,
   Usuario,
   Vehiculo,
 } from '../types/models'
 
 // ---------------------------------------------------------------------------
-// Usuarios — solo lectura desde la app (los usuarios se dan de alta en
-// SharePoint directamente por el Administrador, ver Arquitectura sección 4).
+// Usuarios — la pantalla de administración (rol Administrador, ver
+// UsuariosAdmin.tsx) puede crear el registro y cambiar Rol/Activo, pero eso
+// SOLO controla qué botones ve esa persona dentro de la app. El permiso real
+// de leer/escribir en SharePoint lo da el grupo del sitio al que pertenece
+// su cuenta (Miembros/Visitantes) — crearUsuario() NO agrega a nadie a ese
+// grupo porque Graph no expone esa operación con los permisos de esta app;
+// sigue siendo un paso manual en SharePoint. Ver Arquitectura sección 6.
 // ---------------------------------------------------------------------------
 
 function mapUsuario(item: { id: string; fields: Record<string, unknown> }): Usuario {
@@ -45,6 +51,24 @@ export async function buscarUsuarioPorCorreo(correo: string): Promise<Usuario | 
 export async function listarUsuarios(): Promise<Usuario[]> {
   const items = await listItems<Record<string, unknown>>('Usuarios')
   return items.map(mapUsuario)
+}
+
+export async function crearUsuario(input: { Title: string; Correo: string; Rol: Rol }): Promise<Usuario> {
+  const item = await createItem('Usuarios', {
+    Title: input.Title,
+    Correo: input.Correo,
+    Rol: input.Rol,
+    Activo: true,
+  })
+  return {
+    id: item.id,
+    Title: input.Title,
+    Correo: input.Correo,
+    Rol: input.Rol,
+    Activo: true,
+    AsociadosAsignados: [],
+    GranjasAsignadas: [],
+  }
 }
 
 export async function actualizarUsuario(
