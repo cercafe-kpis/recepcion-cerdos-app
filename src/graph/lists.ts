@@ -1,4 +1,4 @@
-import { createItem, listItems, updateItem } from './client'
+import { createItem, deleteItem, listItems, updateItem } from './client'
 import type {
   Asociado,
   ConsolidadoTiquete,
@@ -74,7 +74,7 @@ export async function crearUsuario(input: { Title: string; Correo: string; Rol: 
 
 export async function actualizarUsuario(
   id: string,
-  cambios: Partial<Pick<Usuario, 'Rol' | 'Activo' | 'AsociadosAsignados' | 'GranjasAsignadas'>>,
+  cambios: Partial<Pick<Usuario, 'Title' | 'Correo' | 'Rol' | 'Activo' | 'AsociadosAsignados' | 'GranjasAsignadas'>>,
 ): Promise<void> {
   // AsociadosAsignados/GranjasAsignadas son Lookup de VALORES MÚLTIPLES — igual que en
   // mapRecepcionAFields, Graph solo las acepta como `<Columna>LookupId` con ids numéricos
@@ -85,6 +85,15 @@ export async function actualizarUsuario(
     ...(AsociadosAsignados ? { AsociadosAsignadosLookupId: AsociadosAsignados.map(Number) } : {}),
     ...(GranjasAsignadas ? { GranjasAsignadasLookupId: GranjasAsignadas.map(Number) } : {}),
   })
+}
+
+/**
+ * Borra el registro de Usuarios en SharePoint — NO quita a la persona del
+ * grupo del sitio (Miembros/Visitantes), eso sigue siendo un paso manual
+ * aparte. Ver el aviso de UsuariosAdmin.tsx.
+ */
+export async function eliminarUsuario(id: string): Promise<void> {
+  await deleteItem('Usuarios', id)
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +122,15 @@ export async function actualizarGrupoAsociado(
   cambios: Partial<Pick<GrupoAsociado, 'Title' | 'Activo'>>,
 ): Promise<void> {
   await updateItem('GruposAsociados', id, cambios)
+}
+
+/**
+ * Borra el grupo en SharePoint. Los Asociados que lo tuvieran asignado NO se
+ * borran ni se les avisa aquí — su GrupoAsociadoId simplemente deja de
+ * resolver a nada (SharePoint no bloquea borrar el destino de un Lookup).
+ */
+export async function eliminarGrupoAsociado(id: string): Promise<void> {
+  await deleteItem('GruposAsociados', id)
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +191,16 @@ export async function actualizarAsociado(
   })
 }
 
+/**
+ * Borra el Asociado en SharePoint. Igual que con GruposAsociados: las
+ * Granjas/Vehiculos/Recepciones que lo referencien por Lookup no se borran,
+ * solo dejan de poder resolver el nombre — por eso conviene Desactivar en
+ * vez de Eliminar cuando el Asociado ya tiene historial capturado.
+ */
+export async function eliminarAsociado(id: string): Promise<void> {
+  await deleteItem('Asociados', id)
+}
+
 // ---------------------------------------------------------------------------
 // Granjas — mismo patrón que Asociados, con AsociadoId (lookup) y Municipio.
 // ---------------------------------------------------------------------------
@@ -204,9 +232,17 @@ export async function crearGranja(input: {
 
 export async function actualizarGranja(
   id: string,
-  cambios: Partial<Pick<Granja, 'Title' | 'Municipio' | 'Activa'>>,
+  cambios: Partial<Pick<Granja, 'Title' | 'AsociadoId' | 'Municipio' | 'Activa'>>,
 ): Promise<void> {
-  await updateItem('Granjas', id, cambios)
+  const { AsociadoId, ...resto } = cambios
+  await updateItem('Granjas', id, {
+    ...resto,
+    ...(AsociadoId !== undefined ? { AsociadoIdLookupId: AsociadoId } : {}),
+  })
+}
+
+export async function eliminarGranja(id: string): Promise<void> {
+  await deleteItem('Granjas', id)
 }
 
 // ---------------------------------------------------------------------------
@@ -235,9 +271,17 @@ export async function crearVehiculo(input: { Title: string; AsociadoId?: string 
 
 export async function actualizarVehiculo(
   id: string,
-  cambios: Partial<Pick<Vehiculo, 'Title' | 'Activo'>>,
+  cambios: Partial<Pick<Vehiculo, 'Title' | 'AsociadoId' | 'Activo'>>,
 ): Promise<void> {
-  await updateItem('Vehiculos', id, cambios)
+  const { AsociadoId, ...resto } = cambios
+  await updateItem('Vehiculos', id, {
+    ...resto,
+    ...(AsociadoId !== undefined ? { AsociadoIdLookupId: AsociadoId || null } : {}),
+  })
+}
+
+export async function eliminarVehiculo(id: string): Promise<void> {
+  await deleteItem('Vehiculos', id)
 }
 
 // ---------------------------------------------------------------------------
