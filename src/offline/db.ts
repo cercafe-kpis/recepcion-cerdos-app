@@ -3,6 +3,7 @@ import type {
   Asociado,
   ConsolidadoTiquete,
   Granja,
+  GrupoAsociado,
   NovedadCorral,
   Recepcion,
   Ubicacion,
@@ -31,6 +32,7 @@ import type {
  */
 export class RecepcionCerdosDB extends Dexie {
   asociados!: Table<Asociado, string>
+  gruposAsociados!: Table<GrupoAsociado, string>
   granjas!: Table<Granja, string>
   vehiculos!: Table<Vehiculo, string>
   usuarios!: Table<Usuario, string>
@@ -72,6 +74,13 @@ export class RecepcionCerdosDB extends Dexie {
     // dispositivo que ya hubiera creado la versión 1 de esta base local.
     this.version(2).stores({
       recepciones: 'id, spId, Consecutivo, EstadoSync, FechaRecepcion, CapturadaEn',
+    })
+
+    // v3: agrega la tabla maestra gruposAsociados (campo "Grupo asociado" de
+    // Asociados, ver GruposAsociadosAdmin.tsx). Dexie migra solo, sin perder
+    // datos, cualquier dispositivo que ya tuviera la base local en v1 o v2.
+    this.version(3).stores({
+      gruposAsociados: 'id, Activo',
     })
   }
 }
