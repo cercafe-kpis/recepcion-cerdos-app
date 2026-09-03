@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { db } from '../../offline/db'
 import { cachearTiquetesDeRecepcion, guardarEdicionTiqueteLocal, sincronizar } from '../../offline/syncService'
-import { generarTiqueteMuertoReposo, generarTiquetesFaltantes } from '../../graph/lists'
+import { generarTiqueteMuertoReposo, generarTiquetesFaltantes, obtenerNovedadCorralDeRecepcion } from '../../graph/lists'
 import { CampoSelect } from '../../components/CamposFormulario'
 import type { ConsolidadoTiquete, Destino, Usuario } from '../../types/models'
 
@@ -61,13 +61,20 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   /**
    * Repara una Recepción que ya quedó "Sincronizada" pero con 0 tiquetes
    * generados — pasó por un bug donde ConsolidadoTiquetes rechazaba el
-   * registro en SharePoint (columna Title obligatoria sin llenar) y el error
-   * se perdía en silencio (ver el comentario en sincronizar() en
-   * syncService.ts, ya corregido). Solo hace falta usar esto para
-   * Recepciones capturadas ANTES de esa corrección; de aquí en adelante
-   * generarTiquetesFaltantes/generarTiqueteMuertoReposo ya deberían crear los
-   * tiquetes solos al sincronizar. Es seguro repetirlo las veces que sea:
-   * generarTiquetesFaltantes nunca duplica una fila que ya exista.
+   * registro en SharePoint (columna Title obligatoria sin llenar, o una
+   * columna de Elección con otro nombre/otras opciones) y el error se perdía
+   * en silencio (ver el comentario en sincronizar() en syncService.ts, ya
+   * corregido). Solo hace falta usar esto para Recepciones capturadas ANTES
+   * de esa corrección; de aquí en adelante generarTiquetesFaltantes/
+   * generarTiqueteMuertoReposo ya deberían crear los tiquetes solos al
+   * sincronizar. Es seguro repetirlo las veces que sea: generarTiquetesFaltantes
+   * nunca duplica una fila que ya exista.
+   *
+   * La novedad de corral se trae de Graph (obtenerNovedadCorralDeRecepcion),
+   * no de Dexie local: este botón se usa típicamente desde un dispositivo
+   * distinto al que capturó Novedades en Corral (por ejemplo, Consolidado
+   * desde el computador de planta y la captura desde el celular), y Dexie
+   * local de ESTE dispositivo nunca tiene ese registro — solo SharePoint sí.
    */
   async function regenerarTiquetes() {
     if (!recepcion?.spId) return
@@ -75,7 +82,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     setError(undefined)
     try {
       await generarTiquetesFaltantes(recepcion)
-      const novedad = await db.novedadesCorral.where('RecepcionId').equals(recepcion.id).first()
+      const novedad = await obtenerNovedadCorralDeRecepcion(recepcion.spId)
       if (novedad) {
         await generarTiqueteMuertoReposo(novedad, { spId: recepcion.spId, Consecutivo: recepcion.Consecutivo })
       }
@@ -168,6 +175,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                     <th className="px-3 py-2">#</th>
                     <th className="px-3 py-2">Tiquete</th>
                     <th className="px-3 py-2">Destino</th>
+                    <th className="px-3 py-2">Factura</th>
                     <th className="px-3 py-2">Estado</th>
                   </tr>
                 </thead>
@@ -210,8 +218,12 @@ function FilaTiquete({
 }) {
   const [numeroTiquete, setNumeroTiquete] = useState(tiquete.Tiquete ?? '')
   const [destino, setDestino] = useState<Destino | ''>(tiquete.Destino ?? '')
+  const [factura, setFactura] = useState(tiquete.Factura ?? '')
 
   const completo = tiquete.EstadoTiquete === 'Completo'
+  // Factura solo aplica a Fortuitos (Muerto en Transporte/Desembarque/Reposo) — ver el
+  // comentario en el campo Factura de ConsolidadoTiquete en src/types/models.ts.
+  const esFortuito = tiquete.GrupoNovedad === 'Fortuito'
 
   return (
     <tr className={clsx(tiquete.EstadoSync === 'Pendiente' && 'bg-amber-50/60')}>
@@ -243,6 +255,20 @@ function FilaTiquete({
           <option value="Procesado">Procesado</option>
           <option value="Decomisado">Decomisado</option>
         </select>
+      </td>
+      <td className="px-3 py-2">
+        {esFortuito ? (
+          <input
+            value={factura}
+            disabled={soloLectura}
+            onChange={(e) => setFactura(e.target.value)}
+            onBlur={() => factura !== (tiquete.Factura ?? '') && onGuardar({ Factura: factura || undefined })}
+            className="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-brand-navy focus:outline-none focus:ring-1 focus:ring-brand-navy disabled:bg-slate-50"
+            placeholder="N.º factura"
+          />
+        ) : (
+          <span className="text-slate-300">—</span>
+        )}
       </td>
       <td className="px-3 py-2">
         <span
