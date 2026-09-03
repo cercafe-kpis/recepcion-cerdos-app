@@ -7,6 +7,13 @@ import type { Asociado, Granja, Usuario } from '../../types/models'
 /**
  * Sigue el mismo patrón que AsociadosAdmin.tsx — ver los comentarios allí,
  * incluido el chequeo `usuario.Rol === 'Administrador'` para Editar/Eliminar.
+ *
+ * id_dhc (número) y nombre_vista (texto) son obligatorios al crear o editar
+ * una granja desde aquí — el botón Agregar/Guardar se queda deshabilitado
+ * hasta llenarlos, igual que ya pasa con Nombre y Asociado. Una granja creada
+ * antes de agregar estas 2 columnas puede llegar sin ese dato desde
+ * SharePoint (ver listarGranjas() en graph/lists.ts) — en ese caso se ve
+ * "0" / en blanco en la tabla hasta que alguien la edite y los complete.
  */
 export function GranjasAdmin({ usuario }: { usuario: Usuario }) {
   const esAdmin = usuario.Rol === 'Administrador'
@@ -17,12 +24,16 @@ export function GranjasAdmin({ usuario }: { usuario: Usuario }) {
   const [nuevoNombre, setNuevoNombre] = useState('')
   const [nuevoMunicipio, setNuevoMunicipio] = useState('')
   const [nuevoAsociadoId, setNuevoAsociadoId] = useState('')
+  const [nuevoIdDhc, setNuevoIdDhc] = useState('')
+  const [nuevoNombreVista, setNuevoNombreVista] = useState('')
   const [guardando, setGuardando] = useState(false)
 
   const [editandoId, setEditandoId] = useState<string>()
   const [editNombre, setEditNombre] = useState('')
   const [editMunicipio, setEditMunicipio] = useState('')
   const [editAsociadoId, setEditAsociadoId] = useState('')
+  const [editIdDhc, setEditIdDhc] = useState('')
+  const [editNombreVista, setEditNombreVista] = useState('')
 
   async function recargar() {
     try {
@@ -41,17 +52,21 @@ export function GranjasAdmin({ usuario }: { usuario: Usuario }) {
   }, [])
 
   async function agregar() {
-    if (!nuevoNombre.trim() || !nuevoAsociadoId) return
+    if (!nuevoNombre.trim() || !nuevoAsociadoId || !nuevoIdDhc.trim() || !nuevoNombreVista.trim()) return
     setGuardando(true)
     try {
       await crearGranja({
         Title: nuevoNombre.trim(),
         AsociadoId: nuevoAsociadoId,
         Municipio: nuevoMunicipio.trim() || undefined,
+        id_dhc: Number(nuevoIdDhc),
+        nombre_vista: nuevoNombreVista.trim(),
       })
       setNuevoNombre('')
       setNuevoMunicipio('')
       setNuevoAsociadoId('')
+      setNuevoIdDhc('')
+      setNuevoNombreVista('')
       await recargar()
     } catch (err) {
       setError(`No se pudo crear la granja: ${(err as Error).message}`)
@@ -74,15 +89,19 @@ export function GranjasAdmin({ usuario }: { usuario: Usuario }) {
     setEditNombre(granja.Title)
     setEditMunicipio(granja.Municipio ?? '')
     setEditAsociadoId(granja.AsociadoId)
+    setEditIdDhc(granja.id_dhc ? String(granja.id_dhc) : '')
+    setEditNombreVista(granja.nombre_vista ?? '')
   }
 
   async function guardarEdicion(id: string) {
-    if (!editNombre.trim() || !editAsociadoId) return
+    if (!editNombre.trim() || !editAsociadoId || !editIdDhc.trim() || !editNombreVista.trim()) return
     try {
       await actualizarGranja(id, {
         Title: editNombre.trim(),
         Municipio: editMunicipio.trim() || undefined,
         AsociadoId: editAsociadoId,
+        id_dhc: Number(editIdDhc),
+        nombre_vista: editNombreVista.trim(),
       })
       setEditandoId(undefined)
       await recargar()
@@ -131,10 +150,27 @@ export function GranjasAdmin({ usuario }: { usuario: Usuario }) {
         <div className="w-40">
           <CampoTexto etiqueta="Municipio" value={nuevoMunicipio} onChange={(e) => setNuevoMunicipio(e.target.value)} />
         </div>
+        <div className="w-32">
+          <CampoTexto
+            type="number"
+            etiqueta="ID DHC"
+            requerido
+            value={nuevoIdDhc}
+            onChange={(e) => setNuevoIdDhc(e.target.value)}
+          />
+        </div>
+        <div className="w-48">
+          <CampoTexto
+            etiqueta="Nombre vista"
+            requerido
+            value={nuevoNombreVista}
+            onChange={(e) => setNuevoNombreVista(e.target.value)}
+          />
+        </div>
         <button
           type="button"
           onClick={() => void agregar()}
-          disabled={guardando || !nuevoNombre.trim() || !nuevoAsociadoId}
+          disabled={guardando || !nuevoNombre.trim() || !nuevoAsociadoId || !nuevoIdDhc.trim() || !nuevoNombreVista.trim()}
           className="rounded-md bg-brand-navy px-4 py-2 text-sm font-semibold text-white hover:bg-brand-navy-hover disabled:opacity-60"
         >
           Agregar
@@ -148,6 +184,8 @@ export function GranjasAdmin({ usuario }: { usuario: Usuario }) {
               <th className="px-3 py-2">Nombre</th>
               <th className="px-3 py-2">Asociado</th>
               <th className="px-3 py-2">Municipio</th>
+              <th className="px-3 py-2">ID DHC</th>
+              <th className="px-3 py-2">Nombre vista</th>
               <th className="px-3 py-2">Estado</th>
               <th className="px-3 py-2" />
             </tr>
@@ -155,14 +193,14 @@ export function GranjasAdmin({ usuario }: { usuario: Usuario }) {
           <tbody className="divide-y divide-slate-100">
             {granjas === undefined && (
               <tr>
-                <td colSpan={5} className="px-3 py-4 text-center text-slate-400">
+                <td colSpan={7} className="px-3 py-4 text-center text-slate-400">
                   Cargando…
                 </td>
               </tr>
             )}
             {granjas?.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-4 text-center text-slate-400">
+                <td colSpan={7} className="px-3 py-4 text-center text-slate-400">
                   Todavía no hay granjas registradas.
                 </td>
               </tr>
@@ -198,12 +236,27 @@ export function GranjasAdmin({ usuario }: { usuario: Usuario }) {
                       className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
                     />
                   </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="number"
+                      value={editIdDhc}
+                      onChange={(e) => setEditIdDhc(e.target.value)}
+                      className="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      value={editNombreVista}
+                      onChange={(e) => setEditNombreVista(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    />
+                  </td>
                   <td className="px-3 py-2 text-slate-600">{g.Activa ? 'Activa' : 'Inactiva'}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => void guardarEdicion(g.id)}
-                      disabled={!editNombre.trim() || !editAsociadoId}
+                      disabled={!editNombre.trim() || !editAsociadoId || !editIdDhc.trim() || !editNombreVista.trim()}
                       className="mr-3 text-xs font-medium text-brand-navy hover:underline disabled:opacity-50"
                     >
                       Guardar
@@ -222,6 +275,8 @@ export function GranjasAdmin({ usuario }: { usuario: Usuario }) {
                   <td className="px-3 py-2 font-medium text-slate-700">{g.Title}</td>
                   <td className="px-3 py-2 text-slate-600">{nombreAsociado(g.AsociadoId)}</td>
                   <td className="px-3 py-2 text-slate-600">{g.Municipio ?? '—'}</td>
+                  <td className="px-3 py-2 text-slate-600">{g.id_dhc || '—'}</td>
+                  <td className="px-3 py-2 text-slate-600">{g.nombre_vista || '—'}</td>
                   <td className="px-3 py-2 text-slate-600">{g.Activa ? 'Activa' : 'Inactiva'}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     {esAdmin && (
