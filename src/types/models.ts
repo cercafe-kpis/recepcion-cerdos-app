@@ -20,10 +20,18 @@ export interface Usuario {
   Activo: boolean
 }
 
+export interface GrupoAsociado {
+  id: string
+  Title: string
+  Activo: boolean
+}
+
 export interface Asociado {
   id: string
   Title: string
   NIT?: string
+  /** Lookup opcional a GrupoAsociado — ver GruposAsociadosAdmin.tsx. */
+  GrupoAsociadoId?: string
   Activo: boolean
 }
 
