@@ -11,7 +11,10 @@ import { NovedadesCorral } from './features/novedades-corral/NovedadesCorral'
 import { Consolidado } from './features/consolidado/Consolidado'
 import { CatalogosAdmin } from './features/catalogos/CatalogosAdmin'
 import { useCurrentUser } from './auth/useCurrentUser'
-import { descargarMaestros, descargarRecepcionesEnProceso } from './offline/syncService'
+import { descargarMaestros, descargarRecepcionesEnProceso, sincronizar } from './offline/syncService'
+
+/** Cada cuánto se revisa solo, en segundo plano, si hay novedades de otros dispositivos. */
+const INTERVALO_AUTO_SYNC_MS = 2 * 60 * 1000
 
 export default function App() {
   return (
@@ -40,6 +43,39 @@ function AppAutenticada() {
     if (usuario && navigator.onLine) {
       void descargarMaestros()
       void descargarRecepcionesEnProceso()
+    }
+  }, [usuario])
+
+  // Antes, la única forma de ver en este dispositivo una Recepción capturada
+  // en OTRO (celular ↔ computador) era cerrar sesión y volver a entrar —
+  // porque descargarRecepcionesEnProceso() de arriba solo corre una vez, al
+  // autenticar. Esto la repite sola cada INTERVALO_AUTO_SYNC_MS mientras la
+  // pestaña siga abierta y haya conexión (usa sincronizar(), no solo
+  // descargarRecepcionesEnProceso(), para que de paso también suba cualquier
+  // captura pendiente de este mismo dispositivo) — y también apenas la
+  // persona vuelve a esta pestaña después de tenerla en segundo plano (por
+  // ejemplo, cambiar de pestaña o de app en el celular y regresar), en vez
+  // de esperar a que se cumpla el intervalo completo. El botón "En línea" de
+  // la barra superior sigue disponible para forzarlo al toque.
+  useEffect(() => {
+    if (!usuario) return
+
+    const intentar = () => {
+      if (navigator.onLine) {
+        void sincronizar(usuario.Correo)
+      }
+    }
+
+    const intervalo = window.setInterval(intentar, INTERVALO_AUTO_SYNC_MS)
+
+    const alVolverVisible = () => {
+      if (document.visibilityState === 'visible') intentar()
+    }
+    document.addEventListener('visibilitychange', alVolverVisible)
+
+    return () => {
+      window.clearInterval(intervalo)
+      document.removeEventListener('visibilitychange', alVolverVisible)
     }
   }, [usuario])
 
