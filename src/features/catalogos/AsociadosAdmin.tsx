@@ -1,23 +1,20 @@
 import { useEffect, useState } from 'react'
-import { actualizarAsociado, crearAsociado, listarAsociados, listarGruposAsociados } from '../../graph/lists'
+import {
+  actualizarAsociado,
+  crearAsociado,
+  eliminarAsociado,
+  listarAsociados,
+  listarGruposAsociados,
+} from '../../graph/lists'
 import { db } from '../../offline/db'
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
-import type { Asociado, GrupoAsociado } from '../../types/models'
+import type { Asociado, GrupoAsociado, Usuario } from '../../types/models'
 
 /**
  * PANTALLA DE REFERENCIA para las 3 tablas maestras (Asociados, Granjas,
  * Vehículos) — solo para el rol Administrador (ver App.tsx, que la protege
- * con ProtegidoPorRol). Granjas y Vehiculos todavía no tienen su propia
- * pantalla: para construirlas, copiar este archivo a
- * src/features/catalogos/GranjasAdmin.tsx / VehiculosAdmin.tsx y:
- *   1. cambiar listarAsociados/crearAsociado/actualizarAsociado por sus
- *      equivalentes de src/graph/lists.ts (listarGranjas/crearGranja/... o
- *      listarVehiculos/crearVehiculo/...), que ya existen y siguen la misma
- *      firma;
- *   2. agregar el campo extra de cada una al formulario (Granjas: selector
- *      de Asociado + Municipio; Vehiculos: selector de Asociado opcional);
- *   3. agregar la entrada de menú en src/components/Navbar.tsx igual que
- *      "Asociados".
+ * con ProtegidoPorRol). Granjas y Vehiculos ya tienen su propia pantalla
+ * (GranjasAdmin.tsx / VehiculosAdmin.tsx), siguiendo el mismo patrón.
  * A diferencia de las pantallas de captura, esta requiere conexión — la
  * administración de maestros no está pensada para hacerse sin internet.
  *
@@ -26,8 +23,18 @@ import type { Asociado, GrupoAsociado } from '../../types/models'
  * Asociado creado antes de este campo puede no tener grupo todavía, aquí se
  * puede asignar o cambiar el grupo tanto al crear como después, desde el
  * desplegable de cada fila (igual que el Rol en UsuariosAdmin.tsx).
+ *
+ * Editar/Eliminar solo se muestran si `usuario.Rol === 'Administrador'` —
+ * en la práctica esta pantalla ya solo la ve un Administrador (la ruta
+ * /admin/asociados está protegida en App.tsx con ProtegidoPorRol), pero se
+ * deja el chequeo también aquí por si esta pantalla se reutiliza algún día
+ * en un lugar menos restringido. Activar/Desactivar (que ya existía) no se
+ * restringió más porque no borra nada — Editar y sobre todo Eliminar sí son
+ * el tipo de acción que conviene limitar de las dos formas a la vez.
  */
-export function AsociadosAdmin() {
+export function AsociadosAdmin({ usuario }: { usuario: Usuario }) {
+  const esAdmin = usuario.Rol === 'Administrador'
+
   const [asociados, setAsociados] = useState<Asociado[]>()
   const [grupos, setGrupos] = useState<GrupoAsociado[]>([])
   const [error, setError] = useState<string>()
@@ -35,6 +42,10 @@ export function AsociadosAdmin() {
   const [nuevoNit, setNuevoNit] = useState('')
   const [nuevoGrupoId, setNuevoGrupoId] = useState('')
   const [guardando, setGuardando] = useState(false)
+
+  const [editandoId, setEditandoId] = useState<string>()
+  const [editNombre, setEditNombre] = useState('')
+  const [editNit, setEditNit] = useState('')
 
   async function recargar() {
     try {
@@ -88,6 +99,37 @@ export function AsociadosAdmin() {
       await recargar()
     } catch (err) {
       setError(`No se pudo actualizar: ${(err as Error).message}`)
+    }
+  }
+
+  function empezarEdicion(asociado: Asociado) {
+    setEditandoId(asociado.id)
+    setEditNombre(asociado.Title)
+    setEditNit(asociado.NIT ?? '')
+  }
+
+  async function guardarEdicion(id: string) {
+    if (!editNombre.trim()) return
+    try {
+      await actualizarAsociado(id, { Title: editNombre.trim(), NIT: editNit.trim() || undefined })
+      setEditandoId(undefined)
+      await recargar()
+    } catch (err) {
+      setError(`No se pudo guardar: ${(err as Error).message}`)
+    }
+  }
+
+  async function eliminar(asociado: Asociado) {
+    const confirmado = window.confirm(
+      `¿Eliminar definitivamente a "${asociado.Title}"? Esto lo borra de SharePoint sin poder deshacerlo. ` +
+        'Si ya tiene Granjas, Vehículos o Recepciones asociadas, mejor usa "Desactivar" en vez de esto.',
+    )
+    if (!confirmado) return
+    try {
+      await eliminarAsociado(asociado.id)
+      await recargar()
+    } catch (err) {
+      setError(`No se pudo eliminar: ${(err as Error).message}`)
     }
   }
 
@@ -155,36 +197,92 @@ export function AsociadosAdmin() {
                 </td>
               </tr>
             )}
-            {asociados?.map((a) => (
-              <tr key={a.id}>
-                <td className="px-3 py-2 font-medium text-slate-700">{a.Title}</td>
-                <td className="px-3 py-2 text-slate-600">{a.NIT ?? '—'}</td>
-                <td className="px-3 py-2">
-                  <select
-                    value={a.GrupoAsociadoId ?? ''}
-                    onChange={(e) => void cambiarGrupo(a, e.target.value)}
-                    className="rounded-md border border-slate-300 px-2 py-1 text-sm"
-                  >
-                    <option value="">Sin grupo</option>
-                    {grupos.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.Title}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-3 py-2 text-slate-600">{a.Activo ? 'Activo' : 'Inactivo'}</td>
-                <td className="px-3 py-2 text-right">
-                  <button
-                    type="button"
-                    onClick={() => void alternarActivo(a)}
-                    className="text-xs font-medium text-brand-navy hover:underline"
-                  >
-                    {a.Activo ? 'Desactivar' : 'Activar'}
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {asociados?.map((a) =>
+              editandoId === a.id ? (
+                <tr key={a.id} className="bg-brand-navy-tint/40">
+                  <td className="px-3 py-2">
+                    <input
+                      value={editNombre}
+                      onChange={(e) => setEditNombre(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      value={editNit}
+                      onChange={(e) => setEditNit(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    />
+                  </td>
+                  <td className="px-3 py-2 text-slate-400">—</td>
+                  <td className="px-3 py-2 text-slate-600">{a.Activo ? 'Activo' : 'Inactivo'}</td>
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => void guardarEdicion(a.id)}
+                      disabled={!editNombre.trim()}
+                      className="mr-3 text-xs font-medium text-brand-navy hover:underline disabled:opacity-50"
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditandoId(undefined)}
+                      className="text-xs font-medium text-slate-500 hover:underline"
+                    >
+                      Cancelar
+                    </button>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={a.id}>
+                  <td className="px-3 py-2 font-medium text-slate-700">{a.Title}</td>
+                  <td className="px-3 py-2 text-slate-600">{a.NIT ?? '—'}</td>
+                  <td className="px-3 py-2">
+                    <select
+                      value={a.GrupoAsociadoId ?? ''}
+                      onChange={(e) => void cambiarGrupo(a, e.target.value)}
+                      className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    >
+                      <option value="">Sin grupo</option>
+                      {grupos.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.Title}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-3 py-2 text-slate-600">{a.Activo ? 'Activo' : 'Inactivo'}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    {esAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => empezarEdicion(a)}
+                        className="mr-3 text-xs font-medium text-brand-navy hover:underline"
+                      >
+                        Editar
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void alternarActivo(a)}
+                      className="mr-3 text-xs font-medium text-brand-navy hover:underline"
+                    >
+                      {a.Activo ? 'Desactivar' : 'Activar'}
+                    </button>
+                    {esAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => void eliminar(a)}
+                        className="text-xs font-medium text-brand-red hover:underline"
+                      >
+                        Eliminar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ),
+            )}
           </tbody>
         </table>
       </div>
