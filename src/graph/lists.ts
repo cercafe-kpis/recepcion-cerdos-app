@@ -324,6 +324,76 @@ export async function existeConsecutivo(consecutivo: string): Promise<boolean> {
 }
 
 /**
+ * Reconstruye un Recepcion completo a partir de lo que devuelve Graph —
+ * exactamente lo contrario de mapRecepcionAFields() de aquí abajo. Se usa
+ * SOLO para traer a un dispositivo Recepciones que otro dispositivo ya
+ * sincronizó (ver listarRecepcionesEnProceso/descargarRecepcionesEnProceso
+ * en syncService.ts); el dispositivo que la capturó nunca pasa por aquí, ya
+ * tiene su propio registro local con su `id` (UUID) desde el inicio.
+ */
+function mapFieldsARecepcion(item: { id: string; fields: Record<string, unknown> }): Recepcion {
+  const f = item.fields
+  const numeroOpcional = (valor: unknown) => (valor === undefined || valor === null ? undefined : Number(valor))
+  return {
+    // Esta Recepción no se capturó en este dispositivo — no hay un `id`
+    // local (UUID) que reutilizar, así que se usa el id real de SharePoint
+    // también como llave primaria en Dexie. Ver el chequeo por `spId` en
+    // descargarRecepcionesEnProceso() para no duplicarla si ya existiera.
+    id: item.id,
+    spId: item.id,
+    Title: String(f.Title ?? ''),
+    Consecutivo: String(f.Consecutivo ?? ''),
+    NumeroOrden: String(f.NumeroOrden ?? ''),
+    FechaRecepcion: String(f.FechaRecepcion ?? ''),
+    HoraLlegadaVehiculo: String(f.HoraLlegadaVehiculo ?? ''),
+    HoraInicioDesembarque: String(f.HoraInicioDesembarque ?? ''),
+    HoraFinalDesembarque: String(f.HoraFinalDesembarque ?? ''),
+    AsociadoId: String(f.AsociadoIdLookupId ?? ''),
+    GranjaId: String(f.GranjaIdLookupId ?? ''),
+    NumeroTotalCerdos: Number(f.NumeroTotalCerdos ?? 0),
+    PesoPromedioGranja: Number(f.PesoPromedioGranja ?? 0),
+    PlacaVehiculoId: String(f.PlacaVehiculoIdLookupId ?? ''),
+    GuiaSanitariaICA: String(f.GuiaSanitariaICA ?? ''),
+    RemisionGranja: String(f.RemisionGranja ?? ''),
+    QRLote: Boolean(f.QRLote),
+    CertificadoInmunocastracion: Boolean(f.CertificadoInmunocastracion),
+    CoincideGuiaICAvsQR: Boolean(f.CoincideGuiaICAvsQR),
+    NovLlegadaLesionados: Boolean(f.NovLlegadaLesionados),
+    NovLlegadaCantLesionados: numeroOpcional(f.NovLlegadaCantLesionados),
+    NovLlegadaCaidos: Boolean(f.NovLlegadaCaidos),
+    NovLlegadaCantCaidos: numeroOpcional(f.NovLlegadaCantCaidos),
+    NovLlegadaAgitados: Boolean(f.NovLlegadaAgitados),
+    NovLlegadaCantAgitados: numeroOpcional(f.NovLlegadaCantAgitados),
+    FortuitoMuertoTransporte: Boolean(f.FortuitoMuertoTransporte),
+    FortuitoCantMuertoTransporte: numeroOpcional(f.FortuitoCantMuertoTransporte),
+    FortuitoMuertoDesembarque: Boolean(f.FortuitoMuertoDesembarque),
+    FortuitoCantMuertoDesembarque: numeroOpcional(f.FortuitoCantMuertoDesembarque),
+    SuciedadCerdos: (f.SuciedadCerdos as Recepcion['SuciedadCerdos']) ?? 'Baja',
+    Observaciones: f.Observaciones ? String(f.Observaciones) : undefined,
+    EstadoLote: (f.EstadoLote as Recepcion['EstadoLote']) ?? 'En proceso',
+    EstadoSync: 'Sincronizada',
+    CapturadaEn: f.CapturadaEn ? String(f.CapturadaEn) : '',
+    RecibidaEn: f.RecibidaEn ? String(f.RecibidaEn) : undefined,
+  }
+}
+
+/**
+ * Trae de SharePoint las Recepciones que TODAVÍA están "En proceso" (no
+ * `Completo`) — a propósito no trae el historial completo, para no
+ * descargar cada vez más datos con los meses. Ver descargarRecepcionesEnProceso()
+ * en syncService.ts, que es quien la usa para que Ubicación/Novedades en
+ * Corral/Consolidado puedan continuar en un dispositivo distinto al que
+ * capturó la Recepción.
+ */
+export async function listarRecepcionesEnProceso(): Promise<Recepcion[]> {
+  const items = await listItems<Record<string, unknown>>(
+    'Recepciones',
+    `$expand=fields&$filter=fields/EstadoLote eq 'En proceso'&$top=500`,
+  )
+  return items.map(mapFieldsARecepcion)
+}
+
+/**
  * AsociadoId, GranjaId y PlacaVehiculoId son columnas de tipo Lookup en
  * SharePoint (ver Arquitectura-App-Recepcion-Cerdos.md sección 4): Graph solo
  * las acepta bajo el nombre `<Columna>LookupId` y con el id NUMÉRICO del
@@ -453,6 +523,14 @@ export async function generarTiquetesFaltantes(recepcion: Recepcion): Promise<vo
     const yaCreados = existentes.filter((t) => t.TipoNovedad === origen.tipo).length
     for (let n = yaCreados + 1; n <= cantidad; n++) {
       await createItem('ConsolidadoTiquetes', {
+        // SharePoint trae por defecto la columna Title como obligatoria en
+        // toda lista nueva — sin ella, este createItem fallaba en silencio
+        // (el error quedaba atrapado en sincronizarRecepciones() sin avisar
+        // en pantalla) y la Recepción quedaba marcada Sincronizada con 0
+        // tiquetes generados. Se pone un Title legible aunque la columna ya
+        // se haya vuelto opcional en SharePoint, para no depender de esa
+        // configuración.
+        Title: `${recepcion.Consecutivo} · ${origen.tipo} #${n}`,
         // Se guarda el spId del padre (no el id local): es lo que
         // listarTiquetesDeRecepcion() usa para filtrar, y una vez
         // sincronizado el id local ya no vuelve a consultarse contra Graph.
@@ -476,7 +554,7 @@ export async function generarTiquetesFaltantes(recepcion: Recepcion): Promise<vo
  */
 export async function generarTiqueteMuertoReposo(
   novedad: NovedadCorral,
-  recepcion: Pick<Recepcion, 'spId'>,
+  recepcion: Pick<Recepcion, 'spId' | 'Consecutivo'>,
 ): Promise<void> {
   if (!recepcion.spId) {
     throw new Error('generarTiqueteMuertoReposo requiere una Recepción ya sincronizada (con spId)')
@@ -488,6 +566,7 @@ export async function generarTiqueteMuertoReposo(
   const yaCreados = existentes.filter((t) => t.TipoNovedad === 'Muerto en Reposo').length
   for (let n = yaCreados + 1; n <= cantidad; n++) {
     await createItem('ConsolidadoTiquetes', {
+      Title: `${recepcion.Consecutivo} · Muerto en Reposo #${n}`,
       RecepcionId: recepcion.spId,
       GrupoNovedad: 'Fortuito',
       TipoNovedad: 'Muerto en Reposo',
