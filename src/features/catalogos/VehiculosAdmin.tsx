@@ -1,17 +1,26 @@
 import { useEffect, useState } from 'react'
-import { actualizarVehiculo, crearVehiculo, listarAsociados, listarVehiculos } from '../../graph/lists'
+import { actualizarVehiculo, crearVehiculo, eliminarVehiculo, listarAsociados, listarVehiculos } from '../../graph/lists'
 import { db } from '../../offline/db'
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
-import type { Asociado, Vehiculo } from '../../types/models'
+import type { Asociado, Usuario, Vehiculo } from '../../types/models'
 
-/** Sigue el mismo patrón que AsociadosAdmin.tsx — ver los comentarios allí. */
-export function VehiculosAdmin() {
+/**
+ * Sigue el mismo patrón que AsociadosAdmin.tsx — ver los comentarios allí,
+ * incluido el chequeo `usuario.Rol === 'Administrador'` para Editar/Eliminar.
+ */
+export function VehiculosAdmin({ usuario }: { usuario: Usuario }) {
+  const esAdmin = usuario.Rol === 'Administrador'
+
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>()
   const [asociados, setAsociados] = useState<Asociado[]>([])
   const [error, setError] = useState<string>()
   const [nuevaPlaca, setNuevaPlaca] = useState('')
   const [nuevoAsociadoId, setNuevoAsociadoId] = useState('')
   const [guardando, setGuardando] = useState(false)
+
+  const [editandoId, setEditandoId] = useState<string>()
+  const [editPlaca, setEditPlaca] = useState('')
+  const [editAsociadoId, setEditAsociadoId] = useState('')
 
   async function recargar() {
     try {
@@ -50,6 +59,37 @@ export function VehiculosAdmin() {
       await recargar()
     } catch (err) {
       setError(`No se pudo actualizar: ${(err as Error).message}`)
+    }
+  }
+
+  function empezarEdicion(vehiculo: Vehiculo) {
+    setEditandoId(vehiculo.id)
+    setEditPlaca(vehiculo.Title)
+    setEditAsociadoId(vehiculo.AsociadoId ?? '')
+  }
+
+  async function guardarEdicion(id: string) {
+    if (!editPlaca.trim()) return
+    try {
+      await actualizarVehiculo(id, { Title: editPlaca.trim(), AsociadoId: editAsociadoId })
+      setEditandoId(undefined)
+      await recargar()
+    } catch (err) {
+      setError(`No se pudo guardar: ${(err as Error).message}`)
+    }
+  }
+
+  async function eliminar(vehiculo: Vehiculo) {
+    const confirmado = window.confirm(
+      `¿Eliminar definitivamente la placa "${vehiculo.Title}"? Esto la borra de SharePoint sin poder deshacerlo. ` +
+        'Si ya tiene Recepciones asociadas, mejor usa "Desactivar" en vez de esto.',
+    )
+    if (!confirmado) return
+    try {
+      await eliminarVehiculo(vehiculo.id)
+      await recargar()
+    } catch (err) {
+      setError(`No se pudo eliminar: ${(err as Error).message}`)
     }
   }
 
@@ -112,22 +152,84 @@ export function VehiculosAdmin() {
                 </td>
               </tr>
             )}
-            {vehiculos?.map((v) => (
-              <tr key={v.id}>
-                <td className="px-3 py-2 font-medium text-slate-700">{v.Title}</td>
-                <td className="px-3 py-2 text-slate-600">{nombreAsociado(v.AsociadoId)}</td>
-                <td className="px-3 py-2 text-slate-600">{v.Activo ? 'Activo' : 'Inactivo'}</td>
-                <td className="px-3 py-2 text-right">
-                  <button
-                    type="button"
-                    onClick={() => void alternarActivo(v)}
-                    className="text-xs font-medium text-brand-navy hover:underline"
-                  >
-                    {v.Activo ? 'Desactivar' : 'Activar'}
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {vehiculos?.map((v) =>
+              editandoId === v.id ? (
+                <tr key={v.id} className="bg-brand-navy-tint/40">
+                  <td className="px-3 py-2">
+                    <input
+                      value={editPlaca}
+                      onChange={(e) => setEditPlaca(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <select
+                      value={editAsociadoId}
+                      onChange={(e) => setEditAsociadoId(e.target.value)}
+                      className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    >
+                      <option value="">Sin asociado</option>
+                      {asociados.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.Title}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-3 py-2 text-slate-600">{v.Activo ? 'Activo' : 'Inactivo'}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => void guardarEdicion(v.id)}
+                      disabled={!editPlaca.trim()}
+                      className="mr-3 text-xs font-medium text-brand-navy hover:underline disabled:opacity-50"
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditandoId(undefined)}
+                      className="text-xs font-medium text-slate-500 hover:underline"
+                    >
+                      Cancelar
+                    </button>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={v.id}>
+                  <td className="px-3 py-2 font-medium text-slate-700">{v.Title}</td>
+                  <td className="px-3 py-2 text-slate-600">{nombreAsociado(v.AsociadoId)}</td>
+                  <td className="px-3 py-2 text-slate-600">{v.Activo ? 'Activo' : 'Inactivo'}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    {esAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => empezarEdicion(v)}
+                        className="mr-3 text-xs font-medium text-brand-navy hover:underline"
+                      >
+                        Editar
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void alternarActivo(v)}
+                      className="mr-3 text-xs font-medium text-brand-navy hover:underline"
+                    >
+                      {v.Activo ? 'Desactivar' : 'Activar'}
+                    </button>
+                    {esAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => void eliminar(v)}
+                        className="text-xs font-medium text-brand-red hover:underline"
+                      >
+                        Eliminar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ),
+            )}
           </tbody>
         </table>
       </div>
