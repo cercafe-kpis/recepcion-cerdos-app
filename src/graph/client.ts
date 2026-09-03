@@ -209,4 +209,24 @@ export async function updateItem<TFields extends object>(
   })
 }
 
+/**
+ * Borra DEFINITIVAMENTE un elemento de una lista de SharePoint — a diferencia
+ * de "Desactivar" (que solo apaga el campo Activo/Activa), esto no se puede
+ * deshacer desde la app. Se usa desde el botón "Eliminar" de las pantallas de
+ * administración de maestros (Asociados/GruposAsociados/Granjas/Vehiculos/
+ * Usuarios), protegido en la interfaz para que solo un Administrador lo vea
+ * (ver ProtegidoPorRol.tsx y el chequeo `usuario.Rol` en cada pantalla).
+ * Nunca se usa con las 4 listas transaccionales: ahí un registro se
+ * actualiza (EstadoSync, Tiquete/Destino, etc.), nunca se borra. Cada
+ * pantalla avisa antes de llamar a esto porque borrar un registro que otro
+ * todavía referencia como Lookup (una Granja que pertenece a este Asociado,
+ * una Recepción que usa esta Placa, etc.) deja esa referencia apuntando a un
+ * elemento que ya no existe.
+ */
+export async function deleteItem(list: ListName, itemId: string): Promise<void> {
+  const siteId = await getSiteId()
+  const listId = await getListId(list)
+  await graphFetch(`/sites/${siteId}/lists/${listId}/items/${itemId}`, { method: 'DELETE' })
+}
+
 export { graphFetch }
