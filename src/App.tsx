@@ -11,7 +11,7 @@ import { NovedadesCorral } from './features/novedades-corral/NovedadesCorral'
 import { Consolidado } from './features/consolidado/Consolidado'
 import { CatalogosAdmin } from './features/catalogos/CatalogosAdmin'
 import { useCurrentUser } from './auth/useCurrentUser'
-import { descargarMaestros } from './offline/syncService'
+import { descargarMaestros, descargarRecepcionesEnProceso } from './offline/syncService'
 
 export default function App() {
   return (
@@ -29,13 +29,17 @@ export default function App() {
 function AppAutenticada() {
   const { usuario, cargando, error } = useCurrentUser()
 
-  // Primera descarga de maestros de la sesión, solo si hay conexión — deja
-  // los combos de Asociado/Granja/Placa listos para trabajar sin internet
-  // el resto del turno. Si falla (sin red, primera vez), los formularios
-  // igual funcionan con lo que ya hubiera en Dexie de una sesión anterior.
+  // Primera descarga de maestros y de Recepciones "en proceso" de la sesión,
+  // solo si hay conexión — deja los combos de Asociado/Granja/Placa listos
+  // para trabajar sin internet el resto del turno, y trae al selector de
+  // Ubicación/NovedadesCorral/Consolidado los lotes que otro dispositivo ya
+  // haya capturado y sincronizado (ver descargarRecepcionesEnProceso() en
+  // syncService.ts). Si falla (sin red, primera vez), los formularios igual
+  // funcionan con lo que ya hubiera en Dexie de una sesión anterior.
   useEffect(() => {
     if (usuario && navigator.onLine) {
       void descargarMaestros()
+      void descargarRecepcionesEnProceso()
     }
   }, [usuario])
 
@@ -100,7 +104,7 @@ function AppAutenticada() {
             path="/admin/asociados"
             element={
               <ProtegidoPorRol usuario={usuario} permitido={['Administrador']}>
-              <CatalogosAdmin usuario={usuario} />
+                <CatalogosAdmin usuario={usuario} />
               </ProtegidoPorRol>
             }
           />
