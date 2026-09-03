@@ -202,7 +202,8 @@ export async function eliminarAsociado(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Granjas — mismo patrón que Asociados, con AsociadoId (lookup) y Municipio.
+// Granjas — mismo patrón que Asociados, con AsociadoId (lookup), Municipio,
+// y id_dhc/nombre_vista (obligatorios desde GranjasAdmin.tsx).
 // ---------------------------------------------------------------------------
 
 export async function listarGranjas(): Promise<Granja[]> {
@@ -212,6 +213,13 @@ export async function listarGranjas(): Promise<Granja[]> {
     Title: String(item.fields.Title ?? ''),
     AsociadoId: String(item.fields.AsociadoIdLookupId ?? item.fields.AsociadoId ?? ''),
     Municipio: item.fields.Municipio ? String(item.fields.Municipio) : undefined,
+    // Granjas creadas antes de agregar estas 2 columnas no las tienen todavía
+    // en SharePoint — por eso el 0 / cadena vacía de respaldo, en vez de
+    // fallar. GranjasAdmin.tsx las trata como obligatorias de aquí en
+    // adelante (crear/editar), pero registros viejos pueden llegar vacíos
+    // hasta que alguien los complete.
+    id_dhc: Number(item.fields.id_dhc ?? 0),
+    nombre_vista: String(item.fields.nombre_vista ?? ''),
     Activa: Boolean(item.fields.Activa ?? true),
   }))
 }
@@ -220,19 +228,31 @@ export async function crearGranja(input: {
   Title: string
   AsociadoId: string
   Municipio?: string
+  id_dhc: number
+  nombre_vista: string
 }): Promise<Granja> {
   const item = await createItem('Granjas', {
     Title: input.Title,
     AsociadoIdLookupId: input.AsociadoId,
     Municipio: input.Municipio ?? '',
+    id_dhc: input.id_dhc,
+    nombre_vista: input.nombre_vista,
     Activa: true,
   })
-  return { id: item.id, Title: input.Title, AsociadoId: input.AsociadoId, Municipio: input.Municipio, Activa: true }
+  return {
+    id: item.id,
+    Title: input.Title,
+    AsociadoId: input.AsociadoId,
+    Municipio: input.Municipio,
+    id_dhc: input.id_dhc,
+    nombre_vista: input.nombre_vista,
+    Activa: true,
+  }
 }
 
 export async function actualizarGranja(
   id: string,
-  cambios: Partial<Pick<Granja, 'Title' | 'AsociadoId' | 'Municipio' | 'Activa'>>,
+  cambios: Partial<Pick<Granja, 'Title' | 'AsociadoId' | 'Municipio' | 'id_dhc' | 'nombre_vista' | 'Activa'>>,
 ): Promise<void> {
   const { AsociadoId, ...resto } = cambios
   await updateItem('Granjas', id, {
