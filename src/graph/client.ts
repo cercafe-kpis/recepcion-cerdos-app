@@ -136,6 +136,7 @@ export async function getSiteId(): Promise<string> {
 export type ListName =
   | 'Usuarios'
   | 'Asociados'
+  | 'GruposAsociados'
   | 'Granjas'
   | 'Vehiculos'
   | 'Recepciones'
