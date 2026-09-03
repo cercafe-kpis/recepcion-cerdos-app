@@ -16,7 +16,8 @@ const ENLACES = [
 
 export function Navbar({ usuario }: { usuario: Usuario }) {
   const { instance } = useMsal()
-  const { enLinea, pendientes, conflictos, sincronizando, sincronizarAhora } = useEstadoSync()
+  const { enLinea, pendientes, conflictos, sincronizando, ultimoErrorSync, descartarErrorSync, sincronizarAhora } =
+    useEstadoSync()
 
   return (
     <header className="border-b border-slate-200 bg-white">
@@ -95,6 +96,30 @@ export function Navbar({ usuario }: { usuario: Usuario }) {
           </button>
         </div>
       </div>
+
+      {ultimoErrorSync && (
+        <div className="border-t border-red-200 bg-red-50 px-4 py-2">
+          <div className="mx-auto flex max-w-5xl items-start justify-between gap-3">
+            <div className="text-xs text-brand-red">
+              <p className="font-semibold">
+                Algo no se sincronizó bien con SharePoint ({new Date(ultimoErrorSync.en).toLocaleString('es-CO')}):
+              </p>
+              <ul className="mt-0.5 list-inside list-disc">
+                {ultimoErrorSync.mensajes.map((m, i) => (
+                  <li key={i}>{m}</li>
+                ))}
+              </ul>
+            </div>
+            <button
+              type="button"
+              onClick={() => void descartarErrorSync()}
+              className="shrink-0 text-xs font-medium text-brand-red hover:underline"
+            >
+              Descartar
+            </button>
+          </div>
+        </div>
+      )}
     </header>
   )
 }
