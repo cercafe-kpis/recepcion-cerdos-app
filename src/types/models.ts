@@ -40,6 +40,10 @@ export interface Granja {
   Title: string
   AsociadoId: string
   Municipio?: string
+  /** Id numérico de esta granja en el sistema DHC — obligatorio desde GranjasAdmin.tsx. */
+  id_dhc: number
+  /** Nombre corto que se usa para mostrar la granja en otras vistas/reportes — obligatorio desde GranjasAdmin.tsx. */
+  nombre_vista: string
   Activa: boolean
 }
 
