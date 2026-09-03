@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react'
-import { actualizarGranja, crearGranja, listarAsociados, listarGranjas } from '../../graph/lists'
+import { actualizarGranja, crearGranja, eliminarGranja, listarAsociados, listarGranjas } from '../../graph/lists'
 import { db } from '../../offline/db'
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
-import type { Asociado, Granja } from '../../types/models'
+import type { Asociado, Granja, Usuario } from '../../types/models'
 
-/** Sigue el mismo patrón que AsociadosAdmin.tsx — ver los comentarios allí. */
-export function GranjasAdmin() {
+/**
+ * Sigue el mismo patrón que AsociadosAdmin.tsx — ver los comentarios allí,
+ * incluido el chequeo `usuario.Rol === 'Administrador'` para Editar/Eliminar.
+ */
+export function GranjasAdmin({ usuario }: { usuario: Usuario }) {
+  const esAdmin = usuario.Rol === 'Administrador'
+
   const [granjas, setGranjas] = useState<Granja[]>()
   const [asociados, setAsociados] = useState<Asociado[]>([])
   const [error, setError] = useState<string>()
@@ -13,6 +18,11 @@ export function GranjasAdmin() {
   const [nuevoMunicipio, setNuevoMunicipio] = useState('')
   const [nuevoAsociadoId, setNuevoAsociadoId] = useState('')
   const [guardando, setGuardando] = useState(false)
+
+  const [editandoId, setEditandoId] = useState<string>()
+  const [editNombre, setEditNombre] = useState('')
+  const [editMunicipio, setEditMunicipio] = useState('')
+  const [editAsociadoId, setEditAsociadoId] = useState('')
 
   async function recargar() {
     try {
@@ -56,6 +66,42 @@ export function GranjasAdmin() {
       await recargar()
     } catch (err) {
       setError(`No se pudo actualizar: ${(err as Error).message}`)
+    }
+  }
+
+  function empezarEdicion(granja: Granja) {
+    setEditandoId(granja.id)
+    setEditNombre(granja.Title)
+    setEditMunicipio(granja.Municipio ?? '')
+    setEditAsociadoId(granja.AsociadoId)
+  }
+
+  async function guardarEdicion(id: string) {
+    if (!editNombre.trim() || !editAsociadoId) return
+    try {
+      await actualizarGranja(id, {
+        Title: editNombre.trim(),
+        Municipio: editMunicipio.trim() || undefined,
+        AsociadoId: editAsociadoId,
+      })
+      setEditandoId(undefined)
+      await recargar()
+    } catch (err) {
+      setError(`No se pudo guardar: ${(err as Error).message}`)
+    }
+  }
+
+  async function eliminar(granja: Granja) {
+    const confirmado = window.confirm(
+      `¿Eliminar definitivamente la granja "${granja.Title}"? Esto la borra de SharePoint sin poder deshacerlo. ` +
+        'Si ya tiene Recepciones asociadas, mejor usa "Desactivar" en vez de esto.',
+    )
+    if (!confirmado) return
+    try {
+      await eliminarGranja(granja.id)
+      await recargar()
+    } catch (err) {
+      setError(`No se pudo eliminar: ${(err as Error).message}`)
     }
   }
 
@@ -121,23 +167,92 @@ export function GranjasAdmin() {
                 </td>
               </tr>
             )}
-            {granjas?.map((g) => (
-              <tr key={g.id}>
-                <td className="px-3 py-2 font-medium text-slate-700">{g.Title}</td>
-                <td className="px-3 py-2 text-slate-600">{nombreAsociado(g.AsociadoId)}</td>
-                <td className="px-3 py-2 text-slate-600">{g.Municipio ?? '—'}</td>
-                <td className="px-3 py-2 text-slate-600">{g.Activa ? 'Activa' : 'Inactiva'}</td>
-                <td className="px-3 py-2 text-right">
-                  <button
-                    type="button"
-                    onClick={() => void alternarActiva(g)}
-                    className="text-xs font-medium text-brand-navy hover:underline"
-                  >
-                    {g.Activa ? 'Desactivar' : 'Activar'}
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {granjas?.map((g) =>
+              editandoId === g.id ? (
+                <tr key={g.id} className="bg-brand-navy-tint/40">
+                  <td className="px-3 py-2">
+                    <input
+                      value={editNombre}
+                      onChange={(e) => setEditNombre(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <select
+                      value={editAsociadoId}
+                      onChange={(e) => setEditAsociadoId(e.target.value)}
+                      className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    >
+                      <option value="">Selecciona…</option>
+                      {asociados.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.Title}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      value={editMunicipio}
+                      onChange={(e) => setEditMunicipio(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    />
+                  </td>
+                  <td className="px-3 py-2 text-slate-600">{g.Activa ? 'Activa' : 'Inactiva'}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => void guardarEdicion(g.id)}
+                      disabled={!editNombre.trim() || !editAsociadoId}
+                      className="mr-3 text-xs font-medium text-brand-navy hover:underline disabled:opacity-50"
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditandoId(undefined)}
+                      className="text-xs font-medium text-slate-500 hover:underline"
+                    >
+                      Cancelar
+                    </button>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={g.id}>
+                  <td className="px-3 py-2 font-medium text-slate-700">{g.Title}</td>
+                  <td className="px-3 py-2 text-slate-600">{nombreAsociado(g.AsociadoId)}</td>
+                  <td className="px-3 py-2 text-slate-600">{g.Municipio ?? '—'}</td>
+                  <td className="px-3 py-2 text-slate-600">{g.Activa ? 'Activa' : 'Inactiva'}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    {esAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => empezarEdicion(g)}
+                        className="mr-3 text-xs font-medium text-brand-navy hover:underline"
+                      >
+                        Editar
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void alternarActiva(g)}
+                      className="mr-3 text-xs font-medium text-brand-navy hover:underline"
+                    >
+                      {g.Activa ? 'Desactivar' : 'Activar'}
+                    </button>
+                    {esAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => void eliminar(g)}
+                        className="text-xs font-medium text-brand-red hover:underline"
+                      >
+                        Eliminar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ),
+            )}
           </tbody>
         </table>
       </div>
