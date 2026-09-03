@@ -21,8 +21,9 @@ export function Ubicacion({ usuario }: { usuario: Usuario }) {
   const [guardando, setGuardando] = useState(false)
   const [mensaje, setMensaje] = useState<string>()
 
-  // Solo recepciones capturadas en este dispositivo (con o sin sincronizar) — Ubicación siempre
-  // se registra a partir de una Recepción que ya se tomó aquí mismo, así que no hace falta pedirla a Graph.
+  // Recepciones capturadas en este dispositivo (con o sin sincronizar), más las que otro
+  // dispositivo ya haya sincronizado y sigan "En proceso" — ver descargarRecepcionesEnProceso()
+  // en syncService.ts, que las trae de SharePoint apenas hay conexión.
   const recepciones = useLiveQuery(() => db.recepciones.orderBy('CapturadaEn').reverse().toArray(), []) ?? []
 
   const {
