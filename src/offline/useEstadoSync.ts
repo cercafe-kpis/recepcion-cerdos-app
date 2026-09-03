@@ -40,6 +40,26 @@ export function useEstadoSync() {
   const conflictos =
     useLiveQuery(() => db.recepciones.where('EstadoSync').equals('ConflictoConsecutivo').count(), []) ?? 0
 
+  // A diferencia de `ultimoResultado` (que solo se llena cuando ESTE
+  // componente dispara sincronizarAhora), esto lee de Dexie — por eso
+  // detecta también los errores de una sincronización automática disparada
+  // desde otra pantalla (Recepcion.tsx, Consolidado.tsx guardan y sincronizan
+  // sin pasar por este hook). Ver el comentario en sincronizar() en
+  // syncService.ts.
+  const ultimoErrorSync = useLiveQuery(async () => {
+    const fila = await db.meta.get('ultimoErrorSync')
+    if (!fila) return undefined
+    try {
+      return JSON.parse(fila.valor) as { mensajes: string[]; en: string }
+    } catch {
+      return undefined
+    }
+  }, [])
+
+  async function descartarErrorSync() {
+    await db.meta.delete('ultimoErrorSync')
+  }
+
   async function sincronizarAhora(correoUsuario: string) {
     if (!enLinea || sincronizando) return
     setSincronizando(true)
@@ -50,5 +70,14 @@ export function useEstadoSync() {
     }
   }
 
-  return { enLinea, pendientes, conflictos, sincronizando, ultimoResultado, sincronizarAhora }
+  return {
+    enLinea,
+    pendientes,
+    conflictos,
+    sincronizando,
+    ultimoResultado,
+    ultimoErrorSync,
+    descartarErrorSync,
+    sincronizarAhora,
+  }
 }
