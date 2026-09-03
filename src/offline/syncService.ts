@@ -9,6 +9,7 @@ import {
   generarTiquetesFaltantes,
   listarAsociados,
   listarGranjas,
+  listarGruposAsociados,
   listarTiquetesDeRecepcion,
   listarUsuarios,
   listarVehiculos,
@@ -25,18 +26,21 @@ import type { ConsolidadoTiquete, NovedadCorral, Recepcion } from '../types/mode
  * conexión un minuto más tarde.
  */
 export async function descargarMaestros(): Promise<void> {
-  const [asociados, granjas, vehiculos, usuarios] = await Promise.all([
+  const [asociados, gruposAsociados, granjas, vehiculos, usuarios] = await Promise.all([
     listarAsociados(),
+    listarGruposAsociados(),
     listarGranjas(),
     listarVehiculos(),
     listarUsuarios(),
   ])
   await db.transaction(
     'rw',
-    [db.asociados, db.granjas, db.vehiculos, db.usuarios, db.meta],
+    [db.asociados, db.gruposAsociados, db.granjas, db.vehiculos, db.usuarios, db.meta],
     async () => {
       await db.asociados.clear()
       await db.asociados.bulkPut(asociados)
+      await db.gruposAsociados.clear()
+      await db.gruposAsociados.bulkPut(gruposAsociados)
       await db.granjas.clear()
       await db.granjas.bulkPut(granjas)
       await db.vehiculos.clear()
