@@ -478,6 +478,39 @@ export async function existeNovedadCorralDeRecepcion(recepcionSpId: string): Pro
   return items.length > 0
 }
 
+/**
+ * A diferencia de existeNovedadCorralDeRecepcion() (que solo confirma que
+ * existe), esta trae el registro completo — la usa Consolidado.tsx en su
+ * botón "Volver a generar tiquetes" para poder calcular el tiquete de
+ * "Muerto en Reposo", cuya cantidad vive en NovedadCorral. Antes ese botón
+ * buscaba la NovedadCorral en Dexie local, pero Novedades en Corral se
+ * captura por dispositivo — si se capturó en el celular y el botón se usa
+ * desde el computador, Dexie del computador nunca tiene ese registro. Aquí
+ * se consulta Graph directamente, igual que con Ubicación/NovedadCorral en
+ * cerrarLotesCompletos().
+ */
+export async function obtenerNovedadCorralDeRecepcion(recepcionSpId: string): Promise<NovedadCorral | undefined> {
+  const items = await listItems<Record<string, unknown>>(
+    'NovedadesCorral',
+    `$expand=fields&$filter=fields/RecepcionId eq '${recepcionSpId.replace(/'/g, "''")}'&$top=1`,
+  )
+  const item = items[0]
+  if (!item) return undefined
+  const f = item.fields
+  return {
+    id: item.id,
+    spId: item.id,
+    RecepcionId: String(f.RecepcionId ?? ''),
+    MuertoReposo: Boolean(f.MuertoReposo),
+    CantMuertoReposo: f.CantMuertoReposo === undefined || f.CantMuertoReposo === null ? undefined : Number(f.CantMuertoReposo),
+    ComportamientoSexual: Boolean(f.ComportamientoSexual),
+    DisponibilidadAgua: Boolean(f.DisponibilidadAgua),
+    EstadoSync: 'Sincronizada',
+    CapturadaEn: f.CapturadaEn ? String(f.CapturadaEn) : '',
+    RecibidaEn: f.RecibidaEn ? String(f.RecibidaEn) : undefined,
+  }
+}
+
 export async function registrarLog(entrada: Omit<RecepcionLogEntry, 'id'>): Promise<void> {
   await createItem('RecepcionLog', entrada)
 }
