@@ -5,6 +5,7 @@ import { GruposAsociadosAdmin } from './GruposAsociadosAdmin'
 import { GranjasAdmin } from './GranjasAdmin'
 import { VehiculosAdmin } from './VehiculosAdmin'
 import { UsuariosAdmin } from './UsuariosAdmin'
+import type { Usuario } from '../../types/models'
 
 type Pestana = 'asociados' | 'gruposAsociados' | 'granjas' | 'vehiculos' | 'usuarios'
 
@@ -23,8 +24,14 @@ const PESTANAS: Array<{ id: Pestana; etiqueta: string }> = [
  * AsociadosAdmin.tsx (la pantalla de referencia original),
  * GruposAsociadosAdmin.tsx, GranjasAdmin.tsx, VehiculosAdmin.tsx y
  * UsuariosAdmin.tsx.
+ *
+ * `usuario` se recibe de App.tsx y se reparte a las 5 pestañas para que cada
+ * una decida si mostrar Editar/Eliminar (ver ProtegidoPorRol.tsx — esta ruta
+ * completa ya está restringida a Administrador, pero se deja el chequeo
+ * también dentro de cada pantalla por si alguna se reutiliza en un lugar
+ * menos restringido más adelante).
  */
-export function CatalogosAdmin() {
+export function CatalogosAdmin({ usuario }: { usuario: Usuario }) {
   const [pestana, setPestana] = useState<Pestana>('asociados')
 
   return (
@@ -45,11 +52,11 @@ export function CatalogosAdmin() {
         ))}
       </div>
 
-      {pestana === 'asociados' && <AsociadosAdmin />}
-      {pestana === 'gruposAsociados' && <GruposAsociadosAdmin />}
-      {pestana === 'granjas' && <GranjasAdmin />}
-      {pestana === 'vehiculos' && <VehiculosAdmin />}
-      {pestana === 'usuarios' && <UsuariosAdmin />}
+      {pestana === 'asociados' && <AsociadosAdmin usuario={usuario} />}
+      {pestana === 'gruposAsociados' && <GruposAsociadosAdmin usuario={usuario} />}
+      {pestana === 'granjas' && <GranjasAdmin usuario={usuario} />}
+      {pestana === 'vehiculos' && <VehiculosAdmin usuario={usuario} />}
+      {pestana === 'usuarios' && <UsuariosAdmin usuario={usuario} />}
     </div>
   )
 }
