@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { db } from '../../offline/db'
 import { cachearTiquetesDeRecepcion, guardarEdicionTiqueteLocal, sincronizar } from '../../offline/syncService'
+import { generarTiqueteMuertoReposo, generarTiquetesFaltantes } from '../../graph/lists'
 import { CampoSelect } from '../../components/CamposFormulario'
 import type { ConsolidadoTiquete, Destino, Usuario } from '../../types/models'
 
@@ -18,7 +19,10 @@ import type { ConsolidadoTiquete, Destino, Usuario } from '../../types/models'
 export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [recepcionId, setRecepcionId] = useState('')
   const [actualizando, setActualizando] = useState(false)
+  const [regenerando, setRegenerando] = useState(false)
+  const [error, setError] = useState<string>()
   const soloLectura = usuario.Rol === 'Consultor'
+  const esAdmin = usuario.Rol === 'Administrador'
 
   const recepciones =
     useLiveQuery(
@@ -54,6 +58,35 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     }
   }
 
+  /**
+   * Repara una Recepción que ya quedó "Sincronizada" pero con 0 tiquetes
+   * generados — pasó por un bug donde ConsolidadoTiquetes rechazaba el
+   * registro en SharePoint (columna Title obligatoria sin llenar) y el error
+   * se perdía en silencio (ver el comentario en sincronizar() en
+   * syncService.ts, ya corregido). Solo hace falta usar esto para
+   * Recepciones capturadas ANTES de esa corrección; de aquí en adelante
+   * generarTiquetesFaltantes/generarTiqueteMuertoReposo ya deberían crear los
+   * tiquetes solos al sincronizar. Es seguro repetirlo las veces que sea:
+   * generarTiquetesFaltantes nunca duplica una fila que ya exista.
+   */
+  async function regenerarTiquetes() {
+    if (!recepcion?.spId) return
+    setRegenerando(true)
+    setError(undefined)
+    try {
+      await generarTiquetesFaltantes(recepcion)
+      const novedad = await db.novedadesCorral.where('RecepcionId').equals(recepcion.id).first()
+      if (novedad) {
+        await generarTiqueteMuertoReposo(novedad, { spId: recepcion.spId, Consecutivo: recepcion.Consecutivo })
+      }
+      await cachearTiquetesDeRecepcion(recepcion.spId)
+    } catch (err) {
+      setError(`No se pudieron generar los tiquetes: ${(err as Error).message}`)
+    } finally {
+      setRegenerando(false)
+    }
+  }
+
   async function guardarCambio(t: ConsolidadoTiquete, cambios: Partial<ConsolidadoTiquete>) {
     await guardarEdicionTiqueteLocal(t.id, cambios)
     if (navigator.onLine) {
@@ -67,6 +100,8 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
       <p className="mt-1 text-sm text-slate-500">
         Asigna el número de tiquete y el destino (Procesado o Decomisado) a cada animal con novedad.
       </p>
+
+      {error && <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">{error}</p>}
 
       <div className="mt-4 max-w-sm">
         <CampoSelect
@@ -98,14 +133,27 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
             <p className="text-sm text-slate-500">
               {tiquetes.length} animal{tiquetes.length === 1 ? '' : 'es'} con novedad en este lote
             </p>
-            <button
-              type="button"
-              onClick={() => void actualizar()}
-              disabled={actualizando || !navigator.onLine}
-              className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
-            >
-              {actualizando ? 'Actualizando…' : 'Actualizar desde SharePoint'}
-            </button>
+            <div className="flex items-center gap-3">
+              {esAdmin && (
+                <button
+                  type="button"
+                  onClick={() => void regenerarTiquetes()}
+                  disabled={regenerando || !navigator.onLine}
+                  title="Vuelve a intentar crear los tiquetes de esta Recepción — útil si quedó Sincronizada pero sin tiquetes por un error de sincronización"
+                  className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
+                >
+                  {regenerando ? 'Generando…' : 'Volver a generar tiquetes'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void actualizar()}
+                disabled={actualizando || !navigator.onLine}
+                className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
+              >
+                {actualizando ? 'Actualizando…' : 'Actualizar desde SharePoint'}
+              </button>
+            </div>
           </div>
 
           {tiquetes.length === 0 ? (
