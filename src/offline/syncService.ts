@@ -10,6 +10,7 @@ import {
   listarAsociados,
   listarGranjas,
   listarGruposAsociados,
+  listarRecepcionesEnProceso,
   listarTiquetesDeRecepcion,
   listarUsuarios,
   listarVehiculos,
@@ -52,6 +53,30 @@ export async function descargarMaestros(): Promise<void> {
   )
 }
 
+/**
+ * Trae las Recepciones "En proceso" que ya existen en SharePoint pero que
+ * este dispositivo no capturó — sin esto, Ubicación/NovedadesCorral/
+ * Consolidado solo podían trabajar sobre lo que se había capturado EN ESE
+ * MISMO dispositivo, porque la sincronización solo subía, nunca bajaba
+ * (a diferencia de descargarMaestros(), que sí trae Asociados/Granjas/etc. a
+ * todos los dispositivos). Se llama sola dentro de sincronizar() —no hace
+ * falta un botón aparte— y también una vez al abrir la app (ver App.tsx).
+ *
+ * Se salta cualquier Recepción cuyo `spId` ya esté en Dexie (la haya
+ * capturado este dispositivo o ya se hubiera descargado antes), para no
+ * duplicarla ni pisar una edición que no debería existir — las Recepciones
+ * no se editan una vez capturadas.
+ */
+export async function descargarRecepcionesEnProceso(): Promise<void> {
+  const remotas = await listarRecepcionesEnProceso()
+  for (const rec of remotas) {
+    const yaExiste = await db.recepciones.where('spId').equals(rec.spId as string).first()
+    if (!yaExiste) {
+      await db.recepciones.put(rec)
+    }
+  }
+}
+
 export interface ResultadoSync {
   recepcionesSubidas: number
   ubicacionesSubidas: number
@@ -89,6 +114,29 @@ export async function sincronizar(usuarioActual: string): Promise<ResultadoSync>
   await sincronizarUbicaciones(resultado)
   await sincronizarNovedadesCorral(resultado)
   await sincronizarTiquetesPendientes(resultado)
+
+  try {
+    await descargarRecepcionesEnProceso()
+  } catch (err) {
+    resultado.errores.push(`No se pudieron traer las Recepciones en proceso de otros dispositivos: ${(err as Error).message}`)
+  }
+
+  // Antes, un error de sincronización (por ejemplo, que Graph rechace crear
+  // un ConsolidadoTiquetes por faltarle una columna obligatoria) solo quedaba
+  // en `resultado.errores` — nadie lo mostraba en pantalla, así que una
+  // Recepción podía quedar marcada "Sincronizada" con parte de su
+  // información realmente perdida, sin que nadie se enterara. Se guarda en
+  // Dexie (no solo en el valor de retorno) para que CUALQUIER pantalla que
+  // dispare sincronizar() —no solo el botón de la barra superior— pueda
+  // mostrar el aviso; ver el banner en Navbar.tsx. No se borra solo: se
+  // queda hasta que alguien lo descarta a propósito, para no perderlo si la
+  // siguiente sincronización automática no tiene nada más que subir.
+  if (resultado.errores.length > 0) {
+    await db.meta.put({
+      clave: 'ultimoErrorSync',
+      valor: JSON.stringify({ mensajes: resultado.errores, en: new Date().toISOString() }),
+    })
+  }
 
   return resultado
 }
@@ -158,7 +206,7 @@ async function sincronizarNovedadesCorral(resultado: ResultadoSync): Promise<voi
       const novedadSincronizada: NovedadCorral = { ...nov, spId, RecibidaEn, EstadoSync: 'Sincronizada' }
       await db.novedadesCorral.update(nov.id, { spId, RecibidaEn, EstadoSync: 'Sincronizada' })
 
-      await generarTiqueteMuertoReposo(novedadSincronizada, { spId: padre.spId })
+      await generarTiqueteMuertoReposo(novedadSincronizada, { spId: padre.spId, Consecutivo: padre.Consecutivo })
       await cachearTiquetesDeRecepcion(padre.spId)
       resultado.novedadesSubidas++
     } catch (err) {
