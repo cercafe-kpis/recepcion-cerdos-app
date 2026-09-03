@@ -1,19 +1,26 @@
 import { useEffect, useState } from 'react'
-import { actualizarGrupoAsociado, crearGrupoAsociado, listarGruposAsociados } from '../../graph/lists'
+import { actualizarGrupoAsociado, crearGrupoAsociado, eliminarGrupoAsociado, listarGruposAsociados } from '../../graph/lists'
 import { db } from '../../offline/db'
 import { CampoTexto } from '../../components/CamposFormulario'
-import type { GrupoAsociado } from '../../types/models'
+import type { GrupoAsociado, Usuario } from '../../types/models'
 
 /**
  * Tabla maestra simple (solo Title + Activo) que agrupa Asociados — se creó
  * para el campo "Grupo asociado" que aparece en AsociadosAdmin.tsx. Sigue el
- * mismo patrón que AsociadosAdmin.tsx, sin ningún campo extra.
+ * mismo patrón que AsociadosAdmin.tsx, sin ningún campo extra — incluido el
+ * chequeo `usuario.Rol === 'Administrador'` para mostrar Editar/Eliminar
+ * (ver el comentario largo sobre esto en AsociadosAdmin.tsx).
  */
-export function GruposAsociadosAdmin() {
+export function GruposAsociadosAdmin({ usuario }: { usuario: Usuario }) {
+  const esAdmin = usuario.Rol === 'Administrador'
+
   const [grupos, setGrupos] = useState<GrupoAsociado[]>()
   const [error, setError] = useState<string>()
   const [nuevoNombre, setNuevoNombre] = useState('')
   const [guardando, setGuardando] = useState(false)
+
+  const [editandoId, setEditandoId] = useState<string>()
+  const [editNombre, setEditNombre] = useState('')
 
   async function recargar() {
     try {
@@ -50,6 +57,36 @@ export function GruposAsociadosAdmin() {
       await recargar()
     } catch (err) {
       setError(`No se pudo actualizar: ${(err as Error).message}`)
+    }
+  }
+
+  function empezarEdicion(grupo: GrupoAsociado) {
+    setEditandoId(grupo.id)
+    setEditNombre(grupo.Title)
+  }
+
+  async function guardarEdicion(id: string) {
+    if (!editNombre.trim()) return
+    try {
+      await actualizarGrupoAsociado(id, { Title: editNombre.trim() })
+      setEditandoId(undefined)
+      await recargar()
+    } catch (err) {
+      setError(`No se pudo guardar: ${(err as Error).message}`)
+    }
+  }
+
+  async function eliminar(grupo: GrupoAsociado) {
+    const confirmado = window.confirm(
+      `¿Eliminar definitivamente el grupo "${grupo.Title}"? Esto lo borra de SharePoint sin poder deshacerlo. ` +
+        'Los Asociados que lo tuvieran asignado se quedan sin ese grupo.',
+    )
+    if (!confirmado) return
+    try {
+      await eliminarGrupoAsociado(grupo.id)
+      await recargar()
+    } catch (err) {
+      setError(`No se pudo eliminar: ${(err as Error).message}`)
     }
   }
 
@@ -101,21 +138,69 @@ export function GruposAsociadosAdmin() {
                 </td>
               </tr>
             )}
-            {grupos?.map((g) => (
-              <tr key={g.id}>
-                <td className="px-3 py-2 font-medium text-slate-700">{g.Title}</td>
-                <td className="px-3 py-2 text-slate-600">{g.Activo ? 'Activo' : 'Inactivo'}</td>
-                <td className="px-3 py-2 text-right">
-                  <button
-                    type="button"
-                    onClick={() => void alternarActivo(g)}
-                    className="text-xs font-medium text-brand-navy hover:underline"
-                  >
-                    {g.Activo ? 'Desactivar' : 'Activar'}
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {grupos?.map((g) =>
+              editandoId === g.id ? (
+                <tr key={g.id} className="bg-brand-navy-tint/40">
+                  <td className="px-3 py-2">
+                    <input
+                      value={editNombre}
+                      onChange={(e) => setEditNombre(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    />
+                  </td>
+                  <td className="px-3 py-2 text-slate-600">{g.Activo ? 'Activo' : 'Inactivo'}</td>
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => void guardarEdicion(g.id)}
+                      disabled={!editNombre.trim()}
+                      className="mr-3 text-xs font-medium text-brand-navy hover:underline disabled:opacity-50"
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditandoId(undefined)}
+                      className="text-xs font-medium text-slate-500 hover:underline"
+                    >
+                      Cancelar
+                    </button>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={g.id}>
+                  <td className="px-3 py-2 font-medium text-slate-700">{g.Title}</td>
+                  <td className="px-3 py-2 text-slate-600">{g.Activo ? 'Activo' : 'Inactivo'}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    {esAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => empezarEdicion(g)}
+                        className="mr-3 text-xs font-medium text-brand-navy hover:underline"
+                      >
+                        Editar
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void alternarActivo(g)}
+                      className="mr-3 text-xs font-medium text-brand-navy hover:underline"
+                    >
+                      {g.Activo ? 'Desactivar' : 'Activar'}
+                    </button>
+                    {esAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => void eliminar(g)}
+                        className="text-xs font-medium text-brand-red hover:underline"
+                      >
+                        Eliminar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ),
+            )}
           </tbody>
         </table>
       </div>
