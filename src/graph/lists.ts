@@ -202,8 +202,7 @@ export async function eliminarAsociado(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Granjas — mismo patrón que Asociados, con AsociadoId (lookup), Municipio,
-// y id_dhc/nombre_vista (obligatorios desde GranjasAdmin.tsx).
+// Granjas — mismo patrón que Asociados, con AsociadoId (lookup) y Municipio.
 // ---------------------------------------------------------------------------
 
 export async function listarGranjas(): Promise<Granja[]> {
@@ -422,6 +421,17 @@ export async function crearRecepcionEnSharePoint(
 }
 
 /**
+ * Marca una Recepción como cerrada — ver cerrarLotesCompletos() en
+ * syncService.ts, que decide CUÁNDO se cumple esa condición y es quien llama
+ * esta función. Solo cambia el estado en SharePoint; quien la llama también
+ * debe actualizar la copia local en Dexie para que el filtro "En proceso"
+ * deje de traerla en la próxima descargarRecepcionesEnProceso().
+ */
+export async function marcarLoteCompleto(recepcionSpId: string): Promise<void> {
+  await updateItem('Recepciones', recepcionSpId, { EstadoLote: 'Completo' })
+}
+
+/**
  * Ubicaciones y NovedadesCorral se sincronizan con la misma forma que
  * Recepciones, una vez que se conoce el `spId` real de su Recepción padre
  * (por eso el sync siempre hace Recepciones primero — ver syncService.ts).
@@ -442,6 +452,30 @@ export async function crearNovedadCorralEnSharePoint(
   const RecibidaEn = new Date().toISOString()
   const item = await createItem('NovedadesCorral', { ...fields, RecibidaEn })
   return { spId: item.id, RecibidaEn }
+}
+
+/**
+ * Estas dos se usan SOLO desde cerrarLotesCompletos() en syncService.ts, para
+ * decidir si una Recepción ya se puede marcar "Completo". Consultan Graph
+ * directamente (nunca Dexie): Ubicación y Novedades en Corral se capturan
+ * offline y pueden vivir todavía sin sincronizar en OTRO dispositivo distinto
+ * al que está corriendo este chequeo, así que el único lugar donde de verdad
+ * ya existen ambas es SharePoint.
+ */
+export async function existeUbicacionDeRecepcion(recepcionSpId: string): Promise<boolean> {
+  const items = await listItems<Record<string, unknown>>(
+    'Ubicaciones',
+    `$filter=fields/RecepcionId eq '${recepcionSpId.replace(/'/g, "''")}'&$top=1`,
+  )
+  return items.length > 0
+}
+
+export async function existeNovedadCorralDeRecepcion(recepcionSpId: string): Promise<boolean> {
+  const items = await listItems<Record<string, unknown>>(
+    'NovedadesCorral',
+    `$filter=fields/RecepcionId eq '${recepcionSpId.replace(/'/g, "''")}'&$top=1`,
+  )
+  return items.length > 0
 }
 
 export async function registrarLog(entrada: Omit<RecepcionLogEntry, 'id'>): Promise<void> {
