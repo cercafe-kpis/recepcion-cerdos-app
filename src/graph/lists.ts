@@ -3,6 +3,7 @@ import type {
   Asociado,
   ConsolidadoTiquete,
   Granja,
+  GrupoAsociado,
   NovedadCorral,
   Recepcion,
   RecepcionLogEntry,
@@ -87,6 +88,34 @@ export async function actualizarUsuario(
 }
 
 // ---------------------------------------------------------------------------
+// GruposAsociados — tabla maestra simple (solo Title + Activo) que agrupa
+// Asociados; se creó para el campo "Grupo asociado" que se ve en
+// AsociadosAdmin.tsx. Sigue el mismo patrón de listar/crear/editar que el
+// resto de tablas maestras.
+// ---------------------------------------------------------------------------
+
+export async function listarGruposAsociados(): Promise<GrupoAsociado[]> {
+  const items = await listItems<Record<string, unknown>>('GruposAsociados')
+  return items.map((item) => ({
+    id: item.id,
+    Title: String(item.fields.Title ?? ''),
+    Activo: Boolean(item.fields.Activo ?? true),
+  }))
+}
+
+export async function crearGrupoAsociado(input: { Title: string }): Promise<GrupoAsociado> {
+  const item = await createItem('GruposAsociados', { Title: input.Title, Activo: true })
+  return { id: item.id, Title: input.Title, Activo: true }
+}
+
+export async function actualizarGrupoAsociado(
+  id: string,
+  cambios: Partial<Pick<GrupoAsociado, 'Title' | 'Activo'>>,
+): Promise<void> {
+  await updateItem('GruposAsociados', id, cambios)
+}
+
+// ---------------------------------------------------------------------------
 // Asociados — PATRÓN DE REFERENCIA COMPLETO (listar + crear + editar).
 // Granjas y Vehiculos son casi idénticas (misma forma, una columna de lookup
 // a Asociados de más) — para implementarlas, copiar estas tres funciones y:
@@ -97,6 +126,11 @@ export async function actualizarUsuario(
 //      Vehiculos agrega AsociadoId opcional).
 // La pantalla que las usa sigue el mismo patrón: ver
 // src/features/catalogos/AsociadosAdmin.tsx.
+//
+// GrupoAsociadoId es un Lookup de UN SOLO VALOR (a diferencia de
+// AsociadosAsignados/GranjasAsignadas en Usuarios, que son de varios
+// valores) — Graph igual solo lo acepta como `GrupoAsociadoIdLookupId`, pero
+// aquí con un único id numérico, nunca un arreglo.
 // ---------------------------------------------------------------------------
 
 export async function listarAsociados(): Promise<Asociado[]> {
@@ -105,24 +139,38 @@ export async function listarAsociados(): Promise<Asociado[]> {
     id: item.id,
     Title: String(item.fields.Title ?? ''),
     NIT: item.fields.NIT ? String(item.fields.NIT) : undefined,
+    GrupoAsociadoId: item.fields.GrupoAsociadoIdLookupId
+      ? String(item.fields.GrupoAsociadoIdLookupId)
+      : undefined,
     Activo: Boolean(item.fields.Activo ?? true),
   }))
 }
 
-export async function crearAsociado(input: { Title: string; NIT?: string }): Promise<Asociado> {
+export async function crearAsociado(input: { Title: string; NIT?: string; GrupoAsociadoId?: string }): Promise<Asociado> {
   const item = await createItem('Asociados', {
     Title: input.Title,
     NIT: input.NIT ?? '',
+    ...(input.GrupoAsociadoId ? { GrupoAsociadoIdLookupId: input.GrupoAsociadoId } : {}),
     Activo: true,
   })
-  return { id: item.id, Title: input.Title, NIT: input.NIT, Activo: true }
+  return {
+    id: item.id,
+    Title: input.Title,
+    NIT: input.NIT,
+    GrupoAsociadoId: input.GrupoAsociadoId,
+    Activo: true,
+  }
 }
 
 export async function actualizarAsociado(
   id: string,
-  cambios: Partial<Pick<Asociado, 'Title' | 'NIT' | 'Activo'>>,
+  cambios: Partial<Pick<Asociado, 'Title' | 'NIT' | 'GrupoAsociadoId' | 'Activo'>>,
 ): Promise<void> {
-  await updateItem('Asociados', id, cambios)
+  const { GrupoAsociadoId, ...resto } = cambios
+  await updateItem('Asociados', id, {
+    ...resto,
+    ...(GrupoAsociadoId !== undefined ? { GrupoAsociadoIdLookupId: GrupoAsociadoId || null } : {}),
+  })
 }
 
 // ---------------------------------------------------------------------------
