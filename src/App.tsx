@@ -100,7 +100,7 @@ function AppAutenticada() {
             path="/admin/asociados"
             element={
               <ProtegidoPorRol usuario={usuario} permitido={['Administrador']}>
-                <CatalogosAdmin />
+              <CatalogosAdmin usuario={usuario} />
               </ProtegidoPorRol>
             }
           />
