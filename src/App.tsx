@@ -107,9 +107,9 @@ function AppAutenticada() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="flex min-h-screen flex-col bg-slate-50">
       <Navbar usuario={usuario} />
-      <main className="mx-auto max-w-5xl px-4 py-6">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">
         <Routes>
           <Route path="/" element={<Inicio usuario={usuario} />} />
           <Route
@@ -150,6 +150,18 @@ function AppAutenticada() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+      <PieDeApp />
     </div>
+  )
+}
+
+/** Pie fijo de toda la app autenticada, a pedido del usuario. Se oculta al imprimir/descargar un
+ * reporte para no aparecer duplicado junto al pie propio de cada reporte (ReporteDiarioLote.tsx,
+ * ReporteSemanalAsociado.tsx). */
+function PieDeApp() {
+  return (
+    <footer className="border-t border-slate-200 py-3 text-center text-xs text-slate-400 print:hidden">
+      Desarrollado por Gestión Técnica Especializada
+    </footer>
   )
 }
