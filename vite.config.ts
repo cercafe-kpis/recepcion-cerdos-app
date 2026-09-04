@@ -13,10 +13,20 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // El registro del service worker lo hace src/registrarServiceWorker.ts a mano (con
+      // virtual:pwa-register), no el script automático que inyectaría injectRegister: 'auto' —
+      // así se le puede pedir que revise si hay una versión nueva cada cierto tiempo y cada vez
+      // que se vuelve a la pestaña, en vez de solo la primera vez que carga la página (que es la
+      // razón por la que en el celular una recarga tarda en "notarse": el navegador no vuelve a
+      // preguntar por su cuenta hasta la siguiente visita).
+      injectRegister: false,
       // Precachea el shell de la app para que abra sin conexión (los datos viven en IndexedDB,
       // ver src/offline/db.ts — el service worker solo se encarga de los archivos estáticos).
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        // Borra del caché del navegador las versiones de archivos de despliegues anteriores en
+        // cuanto el service worker nuevo queda activo, para que no se vayan acumulando.
+        cleanupOutdatedCaches: true,
       },
       manifest: {
         name: 'Recepción de Cerdos — Cercafe',
