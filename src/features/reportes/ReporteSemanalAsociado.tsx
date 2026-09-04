@@ -468,7 +468,8 @@ export function ReporteSemanalAsociado({
 
         {/* Pie */}
         <div className="border-t border-slate-200 px-5 py-3 text-center text-[11px] text-slate-400">
-          Semana {numeroSemana} · {rangoMinus} · Informe de uso interno · Cercafe · Área de Corrales
+          <p>Semana {numeroSemana} · {rangoMinus} · Informe de uso interno · Cercafe · Área de Corrales</p>
+          <p className="mt-0.5">Desarrollado por Gestión Técnica Especializada</p>
         </div>
       </section>
     </div>
