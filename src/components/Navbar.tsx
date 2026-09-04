@@ -12,6 +12,7 @@ const ENLACES = [
   { to: '/ubicacion', label: 'Ubicación' },
   { to: '/novedades-corral', label: 'Novedades en Corral' },
   { to: '/consolidado', label: 'Consolidado' },
+  { to: '/reporte', label: 'Reporte' },
 ]
 
 export function Navbar({ usuario }: { usuario: Usuario }) {
@@ -20,7 +21,7 @@ export function Navbar({ usuario }: { usuario: Usuario }) {
     useEstadoSync()
 
   return (
-    <header className="border-b border-slate-200 bg-white">
+    <header className="border-b border-slate-200 bg-white print:hidden">
       <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-4 py-3">
         <img src={`${BASE}icon-192.png`} alt="Cercafe" className="h-9 w-9 rounded-md" />
         <div className="mr-4">
