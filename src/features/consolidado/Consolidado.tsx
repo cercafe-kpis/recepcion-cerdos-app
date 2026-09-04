@@ -5,6 +5,7 @@ import { db } from '../../offline/db'
 import { cachearTiquetesDeRecepcion, guardarEdicionTiqueteLocal, sincronizar } from '../../offline/syncService'
 import { generarTiqueteMuertoReposo, generarTiquetesFaltantes, obtenerNovedadCorralDeRecepcion } from '../../graph/lists'
 import { CampoSelect } from '../../components/CamposFormulario'
+import { ResumenRecepcion } from '../reportes/ResumenRecepcion'
 import type { ConsolidadoTiquete, Destino, Usuario } from '../../types/models'
 
 /**
@@ -21,7 +22,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [actualizando, setActualizando] = useState(false)
   const [regenerando, setRegenerando] = useState(false)
   const [error, setError] = useState<string>()
-  const soloLectura = usuario.Rol === 'Consultor'
+  const [verReporteInmediato, setVerReporteInmediato] = useState(false)
   const esAdmin = usuario.Rol === 'Administrador'
 
   const recepciones =
@@ -32,7 +33,17 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
 
   const recepcion = useMemo(() => recepciones.find((r) => r.id === recepcionId), [recepciones, recepcionId])
 
+  // Una vez el lote queda "Completo" (ver cerrarLotesCompletos() en
+  // syncService.ts) ya nadie más que un Administrador puede seguir editando
+  // Tiquete/Destino/Factura — a propósito de que ya se armó/envió el reporte
+  // del lote y no debería cambiar por debajo sin que un Administrador lo
+  // decida. Pedido explícito del usuario.
+  const loteCompleto = recepcion?.EstadoLote === 'Completo'
+  const soloLectura = usuario.Rol === 'Consultor' || (loteCompleto && !esAdmin)
+
   const granja = useLiveQuery(() => (recepcion ? db.granjas.get(recepcion.GranjaId) : undefined), [recepcion])
+  const asociado = useLiveQuery(() => (recepcion ? db.asociados.get(recepcion.AsociadoId) : undefined), [recepcion])
+  const vehiculo = useLiveQuery(() => (recepcion ? db.vehiculos.get(recepcion.PlacaVehiculoId) : undefined), [recepcion])
 
   const tiquetes =
     useLiveQuery(
@@ -103,14 +114,14 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-slate-800">Consolidado</h1>
-      <p className="mt-1 text-sm text-slate-500">
+      <h1 className="text-xl font-semibold text-slate-800 print:hidden">Consolidado</h1>
+      <p className="mt-1 text-sm text-slate-500 print:hidden">
         Asigna el número de tiquete y el destino (Procesado o Decomisado) a cada animal con novedad.
       </p>
 
-      {error && <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">{error}</p>}
+      {error && <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red print:hidden">{error}</p>}
 
-      <div className="mt-4 max-w-sm">
+      <div className="mt-4 max-w-sm print:hidden">
         <CampoSelect
           etiqueta="Recepción"
           value={recepcionId}
@@ -129,14 +140,54 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
 
       {recepcion && (
         <>
-          <div className="mt-5 grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-4">
+          <div className="mt-5 grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-4 print:hidden">
             <Dato etiqueta="Fecha" valor={recepcion.FechaRecepcion} />
             <Dato etiqueta="Granja" valor={granja?.Title ?? '—'} />
             <Dato etiqueta="Consecutivo" valor={recepcion.Consecutivo} />
             <Dato etiqueta="Número de orden" valor={recepcion.NumeroOrden} />
           </div>
 
-          <div className="mt-4 flex items-center justify-between">
+          {loteCompleto && (
+            <p className="mt-3 rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-600 print:hidden">
+              {esAdmin
+                ? 'Este lote ya está completo. Como Administrador puedes seguir editándolo.'
+                : 'Este lote ya está completo. Solo un Administrador puede editarlo.'}
+            </p>
+          )}
+
+          {loteCompleto && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => setVerReporteInmediato((v) => !v)}
+                className="text-xs font-medium text-brand-navy hover:underline print:hidden"
+              >
+                {verReporteInmediato ? 'Ocultar reporte del lote' : 'Ver reporte del lote (para enviar al asociado)'}
+              </button>
+              {verReporteInmediato && (
+                <div className="mt-3 print:mt-0">
+                  <div className="mb-2 flex justify-end print:hidden">
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="text-xs font-medium text-brand-navy hover:underline"
+                    >
+                      Imprimir / Descargar PDF
+                    </button>
+                  </div>
+                  <ResumenRecepcion
+                    recepcion={recepcion}
+                    asociadoNombre={asociado?.Title ?? '—'}
+                    granjaNombre={granja?.Title ?? '—'}
+                    placa={vehiculo?.Title ?? '—'}
+                    tiquetes={tiquetes}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="mt-4 flex items-center justify-between print:hidden">
             <p className="text-sm text-slate-500">
               {tiquetes.length} animal{tiquetes.length === 1 ? '' : 'es'} con novedad en este lote
             </p>
@@ -164,9 +215,9 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
           </div>
 
           {tiquetes.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">Este lote no tiene animales con novedad.</p>
+            <p className="mt-3 text-sm text-slate-500 print:hidden">Este lote no tiene animales con novedad.</p>
           ) : (
-            <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200 bg-white">
+            <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200 bg-white print:hidden">
               <table className="min-w-full divide-y divide-slate-200 text-sm">
                 <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
