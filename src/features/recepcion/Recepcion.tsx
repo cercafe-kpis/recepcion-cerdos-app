@@ -41,8 +41,11 @@ const VALORES_INICIALES: RecepcionFormInput = {
   CertificadoInmunocastracion: false,
   CoincideGuiaICAvsQR: false,
   NovLlegadaLesionados: false,
+  NovLlegadaLesionadosBeneficioEmergencia: false,
   NovLlegadaCaidos: false,
+  NovLlegadaCaidosBeneficioEmergencia: false,
   NovLlegadaAgitados: false,
+  NovLlegadaAgitadosBeneficioEmergencia: false,
   FortuitoMuertoTransporte: false,
   FortuitoMuertoDesembarque: false,
   SuciedadCerdos: 'Baja',
@@ -184,19 +187,55 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
           <div className="space-y-2">
             <CampoCheckbox etiqueta="Lesionado" {...register('NovLlegadaLesionados')} />
             {watch('NovLlegadaLesionados') && (
-              <CampoTexto type="number" step="1" etiqueta="Cantidad lesionados" {...register('NovLlegadaCantLesionados')} error={errors.NovLlegadaCantLesionados?.message} />
+              <>
+                <CampoTexto type="number" step="1" etiqueta="Cantidad lesionados" {...register('NovLlegadaCantLesionados')} error={errors.NovLlegadaCantLesionados?.message} />
+                <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia? (no se recuperó)" {...register('NovLlegadaLesionadosBeneficioEmergencia')} />
+                {watch('NovLlegadaLesionadosBeneficioEmergencia') && (
+                  <CampoTexto
+                    type="number"
+                    step="1"
+                    etiqueta="Cantidad beneficiados de emergencia"
+                    {...register('NovLlegadaCantLesionadosBeneficioEmergencia')}
+                    error={errors.NovLlegadaCantLesionadosBeneficioEmergencia?.message}
+                  />
+                )}
+              </>
             )}
           </div>
           <div className="space-y-2">
             <CampoCheckbox etiqueta="Caído" {...register('NovLlegadaCaidos')} />
             {watch('NovLlegadaCaidos') && (
-              <CampoTexto type="number" step="1" etiqueta="Cantidad caídos" {...register('NovLlegadaCantCaidos')} error={errors.NovLlegadaCantCaidos?.message} />
+              <>
+                <CampoTexto type="number" step="1" etiqueta="Cantidad caídos" {...register('NovLlegadaCantCaidos')} error={errors.NovLlegadaCantCaidos?.message} />
+                <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia? (no se recuperó)" {...register('NovLlegadaCaidosBeneficioEmergencia')} />
+                {watch('NovLlegadaCaidosBeneficioEmergencia') && (
+                  <CampoTexto
+                    type="number"
+                    step="1"
+                    etiqueta="Cantidad beneficiados de emergencia"
+                    {...register('NovLlegadaCantCaidosBeneficioEmergencia')}
+                    error={errors.NovLlegadaCantCaidosBeneficioEmergencia?.message}
+                  />
+                )}
+              </>
             )}
           </div>
           <div className="space-y-2">
             <CampoCheckbox etiqueta="Agitado" {...register('NovLlegadaAgitados')} />
             {watch('NovLlegadaAgitados') && (
-              <CampoTexto type="number" step="1" etiqueta="Cantidad agitados" {...register('NovLlegadaCantAgitados')} error={errors.NovLlegadaCantAgitados?.message} />
+              <>
+                <CampoTexto type="number" step="1" etiqueta="Cantidad agitados" {...register('NovLlegadaCantAgitados')} error={errors.NovLlegadaCantAgitados?.message} />
+                <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia? (no se recuperó)" {...register('NovLlegadaAgitadosBeneficioEmergencia')} />
+                {watch('NovLlegadaAgitadosBeneficioEmergencia') && (
+                  <CampoTexto
+                    type="number"
+                    step="1"
+                    etiqueta="Cantidad beneficiados de emergencia"
+                    {...register('NovLlegadaCantAgitadosBeneficioEmergencia')}
+                    error={errors.NovLlegadaCantAgitadosBeneficioEmergencia?.message}
+                  />
+                )}
+              </>
             )}
           </div>
         </SeccionFormulario>
