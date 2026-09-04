@@ -9,6 +9,7 @@ import { Recepcion } from './features/recepcion/Recepcion'
 import { Ubicacion } from './features/ubicacion/Ubicacion'
 import { NovedadesCorral } from './features/novedades-corral/NovedadesCorral'
 import { Consolidado } from './features/consolidado/Consolidado'
+import { Reporte } from './features/reportes/Reporte'
 import { CatalogosAdmin } from './features/catalogos/CatalogosAdmin'
 import { useCurrentUser } from './auth/useCurrentUser'
 import { descargarMaestros, descargarRecepcionesEnProceso, sincronizar } from './offline/syncService'
@@ -136,6 +137,8 @@ function AppAutenticada() {
             }
           />
           <Route path="/consolidado" element={<Consolidado usuario={usuario} />} />
+          {/* Sin ProtegidoPorRol a propósito: "todos los perfiles pueden tener acceso a este reporte" (pedido explícito del usuario). */}
+          <Route path="/reporte" element={<Reporte />} />
           <Route
             path="/admin/asociados"
             element={
