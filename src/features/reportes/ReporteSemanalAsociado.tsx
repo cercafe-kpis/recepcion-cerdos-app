@@ -161,10 +161,7 @@ export function ReporteSemanalAsociado({
   }, [recepciones, tiquetesPorRecepcion, mapaGranjas])
 
   const porVehiculo = useMemo(() => {
-    const mapa = new Map
-      string,
-      { placa: string; lotes: number; animales: number; granjas: Set<string>; stats: StatsNovedad }
-    >()
+    const mapa = new Map<string, { placa: string; lotes: number; animales: number; granjas: Set<string>; stats: StatsNovedad }>()
     for (const r of recepciones) {
       const vehId = r.PlacaVehiculoId || '__sin-vehiculo__'
       const placa = mapaVehiculos.get(r.PlacaVehiculoId)?.Title ?? 'Sin placa'
