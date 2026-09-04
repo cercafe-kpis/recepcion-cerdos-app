@@ -53,9 +53,21 @@ function conLimiteDeTiempo<T>(promesa: Promise<T>, ms: number, mensaje: string):
  * "Iniciar sesión" en PantallaLogin, o "Salir" y volviendo a entrar.
  */
 async function getAccessToken(): Promise<string> {
-  const account = msalInstance.getActiveAccount()
+  // getActiveAccount() y getAllAccounts() son cosas distintas para MSAL: la primera es solo un
+  // "puntero" a cuál cuenta usar, que en el celular a veces se pierde (el navegador limpia justo
+  // ese dato) aunque la cuenta siga guardada — ahí la barra superior seguía mostrando el usuario
+  // (useCurrentUser.ts lee accounts[0] de useMsal(), no getActiveAccount()) pero cualquier pedido
+  // a Graph fallaba con "No hay una sesión activa". Si pasa, se recupera solo usando la primera
+  // cuenta guardada y se vuelve a marcar como activa, en vez de obligar a cerrar e iniciar sesión
+  // de nuevo por algo que la app puede resolver sola.
+  let account = msalInstance.getActiveAccount()
   if (!account) {
-    throw new Error('No hay una sesión activa de Microsoft. Inicia sesión de nuevo.')
+    const [primera] = msalInstance.getAllAccounts()
+    if (!primera) {
+      throw new Error('No hay una sesión activa de Microsoft. Inicia sesión de nuevo.')
+    }
+    msalInstance.setActiveAccount(primera)
+    account = primera
   }
   try {
     const result = await conLimiteDeTiempo(
