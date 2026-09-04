@@ -84,11 +84,14 @@ export interface Recepcion extends CapturaOffline {
   NumeroOrden: string
   FechaRecepcion: string
   /**
-   * Estas 3 son columnas "Fecha y hora" en SharePoint (no existe un tipo "solo hora" ahí), así que
+   * Estas 4 son columnas "Fecha y hora" en SharePoint (no existe un tipo "solo hora" ahí), así que
    * se guardan como fecha-hora ISO completa con offset fijo -05:00 (Colombia) — ej.
    * "2026-09-01T14:30:00-05:00" — armada a partir de FechaRecepcion + la hora que digita la persona.
-   * Ver combinarFechaHora() en src/features/recepcion/Recepcion.tsx.
+   * Ver combinarFechaHora() en src/features/recepcion/Recepcion.tsx. HoraProgramada se agregó para
+   * el reporte diario por lote (src/features/reportes/ReporteDiarioLote.tsx) — Tiempo de espera y
+   * Tiempo de desembarque de ese reporte se calculan solos a partir de estas 4, no se capturan aparte.
    */
+  HoraProgramada: string
   HoraLlegadaVehiculo: string
   HoraInicioDesembarque: string
   HoraFinalDesembarque: string
@@ -115,6 +118,12 @@ export interface Recepcion extends CapturaOffline {
   SuciedadCerdos: SuciedadCerdos
   Observaciones?: string
   EstadoLote: EstadoLote
+  /**
+   * Nombre (Title) de quien registró esta Recepción — se guarda solo, sin
+   * pedirlo en el formulario (ver Recepcion.tsx). Es el "Encargado" que
+   * aparece en el reporte diario por lote.
+   */
+  CapturadoPor: string
 }
 
 export interface Ubicacion extends CapturaOffline {
