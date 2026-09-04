@@ -2,11 +2,13 @@ import { z } from 'zod'
 
 /**
  * Valida el formulario de Recepción antes de guardarlo localmente (ver
- * Recepcion.tsx). Las 5 parejas booleano+cantidad (novedades de llegada y
- * fortuitos) usan superRefine porque la cantidad solo es obligatoria cuando
- * su checkbox está marcado — son las mismas 5 que después explota
- * generarTiquetesFaltantes() en src/graph/lists.ts, una fila de
- * ConsolidadoTiquetes por unidad de cantidad.
+ * Recepcion.tsx). Las parejas booleano+cantidad (novedades de llegada,
+ * beneficio de emergencia de esas mismas novedades, y fortuitos) usan
+ * superRefine porque la cantidad solo es obligatoria cuando su checkbox está
+ * marcado — son las mismas que después explota generarTiquetesFaltantes()
+ * en src/graph/lists.ts, una fila de ConsolidadoTiquetes por unidad de
+ * cantidad (para "Novedad de llegada" esa cantidad es la de beneficio de
+ * emergencia, no el total reportado — ver el comentario en ese archivo).
  */
 export const recepcionSchema = z
   .object({
@@ -30,10 +32,16 @@ export const recepcionSchema = z
 
     NovLlegadaLesionados: z.boolean(),
     NovLlegadaCantLesionados: z.coerce.number().int().min(0).optional(),
+    NovLlegadaLesionadosBeneficioEmergencia: z.boolean(),
+    NovLlegadaCantLesionadosBeneficioEmergencia: z.coerce.number().int().min(0).optional(),
     NovLlegadaCaidos: z.boolean(),
     NovLlegadaCantCaidos: z.coerce.number().int().min(0).optional(),
+    NovLlegadaCaidosBeneficioEmergencia: z.boolean(),
+    NovLlegadaCantCaidosBeneficioEmergencia: z.coerce.number().int().min(0).optional(),
     NovLlegadaAgitados: z.boolean(),
     NovLlegadaCantAgitados: z.coerce.number().int().min(0).optional(),
+    NovLlegadaAgitadosBeneficioEmergencia: z.boolean(),
+    NovLlegadaCantAgitadosBeneficioEmergencia: z.coerce.number().int().min(0).optional(),
 
     FortuitoMuertoTransporte: z.boolean(),
     FortuitoCantMuertoTransporte: z.coerce.number().int().min(0).optional(),
@@ -46,8 +54,11 @@ export const recepcionSchema = z
   .superRefine((datos, ctx) => {
     const parejas = [
       ['NovLlegadaLesionados', 'NovLlegadaCantLesionados'],
+      ['NovLlegadaLesionadosBeneficioEmergencia', 'NovLlegadaCantLesionadosBeneficioEmergencia'],
       ['NovLlegadaCaidos', 'NovLlegadaCantCaidos'],
+      ['NovLlegadaCaidosBeneficioEmergencia', 'NovLlegadaCantCaidosBeneficioEmergencia'],
       ['NovLlegadaAgitados', 'NovLlegadaCantAgitados'],
+      ['NovLlegadaAgitadosBeneficioEmergencia', 'NovLlegadaCantAgitadosBeneficioEmergencia'],
       ['FortuitoMuertoTransporte', 'FortuitoCantMuertoTransporte'],
       ['FortuitoMuertoDesembarque', 'FortuitoCantMuertoDesembarque'],
     ] as const
@@ -58,6 +69,27 @@ export const recepcionSchema = z
           code: 'custom',
           path: [cantidad],
           message: 'Indica cuántos animales — es lo que genera los tiquetes en Consolidado',
+        })
+      }
+    }
+
+    // La cantidad beneficiada de emergencia nunca puede superar el total reportado de esa
+    // misma novedad de llegada (ej. no puede haber 3 lesionados beneficiados de emergencia
+    // si solo se reportaron 2 lesionados en total).
+    const topesEmergencia = [
+      ['NovLlegadaCantLesionadosBeneficioEmergencia', 'NovLlegadaCantLesionados'],
+      ['NovLlegadaCantCaidosBeneficioEmergencia', 'NovLlegadaCantCaidos'],
+      ['NovLlegadaCantAgitadosBeneficioEmergencia', 'NovLlegadaCantAgitados'],
+    ] as const
+
+    for (const [cantidadEmergencia, cantidadTotal] of topesEmergencia) {
+      const emergencia = Number(datos[cantidadEmergencia])
+      const total = Number(datos[cantidadTotal])
+      if (emergencia > 0 && emergencia > total) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [cantidadEmergencia],
+          message: 'No puede ser mayor a la cantidad total reportada arriba',
         })
       }
     }
