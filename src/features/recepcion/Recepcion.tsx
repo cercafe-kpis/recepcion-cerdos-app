@@ -26,6 +26,7 @@ const VALORES_INICIALES: RecepcionFormInput = {
   Consecutivo: '',
   NumeroOrden: '',
   FechaRecepcion: new Date().toISOString().slice(0, 10),
+  HoraProgramada: '',
   HoraLlegadaVehiculo: '',
   HoraInicioDesembarque: '',
   HoraFinalDesembarque: '',
@@ -92,12 +93,16 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
         ...valores,
         id: crypto.randomUUID(),
         Title: `${valores.Consecutivo} · ${valores.FechaRecepcion}`,
+        HoraProgramada: combinarFechaHora(valores.FechaRecepcion, valores.HoraProgramada),
         HoraLlegadaVehiculo: combinarFechaHora(valores.FechaRecepcion, valores.HoraLlegadaVehiculo),
         HoraInicioDesembarque: combinarFechaHora(valores.FechaRecepcion, valores.HoraInicioDesembarque),
         HoraFinalDesembarque: combinarFechaHora(valores.FechaRecepcion, valores.HoraFinalDesembarque),
         EstadoLote: 'En proceso',
         EstadoSync: 'Pendiente',
         CapturadaEn: new Date().toISOString(),
+        // Se guarda solo, sin pedirlo en el formulario — es el "Encargado" del reporte diario por
+        // lote (ver ReporteDiarioLote.tsx): la persona que registra la Recepción en la app.
+        CapturadoPor: usuario.Title,
       }
       await db.recepciones.put(registro)
       reset(VALORES_INICIALES)
@@ -125,6 +130,7 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
           <CampoTexto etiqueta="Consecutivo" requerido {...register('Consecutivo')} error={errors.Consecutivo?.message} />
           <CampoTexto etiqueta="Número de orden" requerido {...register('NumeroOrden')} error={errors.NumeroOrden?.message} />
           <CampoTexto type="date" etiqueta="Fecha de recepción" requerido {...register('FechaRecepcion')} error={errors.FechaRecepcion?.message} />
+          <CampoTexto type="time" etiqueta="Hora programada" requerido {...register('HoraProgramada')} error={errors.HoraProgramada?.message} />
           <CampoTexto type="time" etiqueta="Hora de llegada del vehículo" requerido {...register('HoraLlegadaVehiculo')} error={errors.HoraLlegadaVehiculo?.message} />
           <CampoTexto type="time" etiqueta="Hora de inicio de desembarque" requerido {...register('HoraInicioDesembarque')} error={errors.HoraInicioDesembarque?.message} />
           <CampoTexto type="time" etiqueta="Hora final de desembarque" requerido {...register('HoraFinalDesembarque')} error={errors.HoraFinalDesembarque?.message} />
