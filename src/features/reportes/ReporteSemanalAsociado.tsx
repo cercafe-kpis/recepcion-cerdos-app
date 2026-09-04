@@ -318,48 +318,52 @@ export function ReporteSemanalAsociado({
 
         {/* Detalle por lote — encabezado en flexbox (no rowSpan/colSpan de tabla): ver la misma
             nota en ReporteDiarioLote.tsx sobre por qué html2canvas-pro rompe las celdas
-            combinadas de una <table> al descargar la imagen. */}
+            combinadas de una <table> al descargar la imagen. Envuelta en overflow-x-auto con un
+            min-w fijo (misma razón que la tabla de Horas de ReporteDiarioLote.tsx) para que en un
+            celular angosto se pueda deslizar en vez de quedar recortada. */}
         <div className="px-5 pb-5">
           <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Detalle por lote</p>
-          <div className="overflow-hidden rounded-md border border-slate-200 text-center text-xs">
-            <div className="flex bg-brand-navy font-semibold text-white">
-              <div className="flex flex-1 items-center justify-center px-1 py-1.5">Fecha</div>
-              <div className="flex flex-1 items-center justify-center px-1 py-1.5">Granja</div>
-              <div className="flex flex-1 items-center justify-center px-1 py-1.5">Consec.</div>
-              <div className="flex flex-1 items-center justify-center px-1 py-1.5">Animales</div>
-              <div className="flex flex-1 items-center justify-center px-1 py-1.5">Placa</div>
-              <div className="flex flex-[3_3_0%] flex-col border-l border-white/20">
-                <p className="px-1 py-1 text-center">Fortuitos</p>
-                <div className="flex flex-1 border-t border-white/20">
-                  <p className="flex-1 px-1 py-1">Transp.</p>
-                  <p className="flex-1 border-l border-white/20 px-1 py-1">Desemb.</p>
-                  <p className="flex-1 border-l border-white/20 px-1 py-1">Reposo</p>
-                </div>
-              </div>
-              <div className="flex flex-1 items-center justify-center px-1 py-1.5">Agitados</div>
-              <div className="flex flex-1 items-center justify-center px-1 py-1.5">Caídos</div>
-              <div className="flex flex-1 items-center justify-center px-1 py-1.5">Lesion.</div>
-            </div>
-            {detalle.map((r, i) => {
-              const cantReposo = contarReposo(r.spId ? (tiquetesPorRecepcion[r.spId] ?? []) : [])
-              return (
-                <div key={r.id} className={`flex border-t border-slate-200 ${i % 2 === 1 ? 'bg-purple-50/30' : 'bg-white'}`}>
-                  <div className="flex-1 px-1 py-1.5">{fechaCorta(r.FechaRecepcion)}</div>
-                  <div className="flex-1 px-1 py-1.5">{mapaGranjas.get(r.GranjaId)?.Title ?? '—'}</div>
-                  <div className="flex-1 px-1 py-1.5">{r.Consecutivo}</div>
-                  <div className="flex-1 px-1 py-1.5">{r.NumeroTotalCerdos}</div>
-                  <div className="flex-1 px-1 py-1.5">{mapaVehiculos.get(r.PlacaVehiculoId)?.Title ?? '—'}</div>
-                  <div className="flex flex-[3_3_0%]">
-                    <CeldaCantidad valor={r.FortuitoCantMuertoTransporte} />
-                    <CeldaCantidad valor={r.FortuitoCantMuertoDesembarque} />
-                    <CeldaCantidad valor={cantReposo} />
+          <div className="overflow-x-auto">
+            <div className="min-w-[820px] overflow-hidden rounded-md border border-slate-200 text-center text-xs">
+              <div className="flex bg-brand-navy font-semibold text-white">
+                <div className="flex flex-1 items-center justify-center px-1 py-1.5">Fecha</div>
+                <div className="flex flex-1 items-center justify-center px-1 py-1.5">Granja</div>
+                <div className="flex flex-1 items-center justify-center px-1 py-1.5">Consec.</div>
+                <div className="flex flex-1 items-center justify-center px-1 py-1.5">Animales</div>
+                <div className="flex flex-1 items-center justify-center px-1 py-1.5">Placa</div>
+                <div className="flex flex-[3_3_0%] flex-col border-l border-white/20">
+                  <p className="px-1 py-1 text-center">Fortuitos</p>
+                  <div className="flex flex-1 border-t border-white/20">
+                    <p className="flex-1 px-1 py-1">Transp.</p>
+                    <p className="flex-1 border-l border-white/20 px-1 py-1">Desemb.</p>
+                    <p className="flex-1 border-l border-white/20 px-1 py-1">Reposo</p>
                   </div>
-                  <CeldaCantidad valor={r.NovLlegadaCantAgitados} />
-                  <CeldaCantidad valor={r.NovLlegadaCantCaidos} />
-                  <CeldaCantidad valor={r.NovLlegadaCantLesionados} />
                 </div>
-              )
-            })}
+                <div className="flex flex-1 items-center justify-center px-1 py-1.5">Agitados</div>
+                <div className="flex flex-1 items-center justify-center px-1 py-1.5">Caídos</div>
+                <div className="flex flex-1 items-center justify-center px-1 py-1.5">Lesion.</div>
+              </div>
+              {detalle.map((r, i) => {
+                const cantReposo = contarReposo(r.spId ? (tiquetesPorRecepcion[r.spId] ?? []) : [])
+                return (
+                  <div key={r.id} className={`flex border-t border-slate-200 ${i % 2 === 1 ? 'bg-purple-50/30' : 'bg-white'}`}>
+                    <div className="flex-1 px-1 py-1.5">{fechaCorta(r.FechaRecepcion)}</div>
+                    <div className="flex-1 px-1 py-1.5">{mapaGranjas.get(r.GranjaId)?.Title ?? '—'}</div>
+                    <div className="flex-1 px-1 py-1.5">{r.Consecutivo}</div>
+                    <div className="flex-1 px-1 py-1.5">{r.NumeroTotalCerdos}</div>
+                    <div className="flex-1 px-1 py-1.5">{mapaVehiculos.get(r.PlacaVehiculoId)?.Title ?? '—'}</div>
+                    <div className="flex flex-[3_3_0%]">
+                      <CeldaCantidad valor={r.FortuitoCantMuertoTransporte} />
+                      <CeldaCantidad valor={r.FortuitoCantMuertoDesembarque} />
+                      <CeldaCantidad valor={cantReposo} />
+                    </div>
+                    <CeldaCantidad valor={r.NovLlegadaCantAgitados} />
+                    <CeldaCantidad valor={r.NovLlegadaCantCaidos} />
+                    <CeldaCantidad valor={r.NovLlegadaCantLesionados} />
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
 
