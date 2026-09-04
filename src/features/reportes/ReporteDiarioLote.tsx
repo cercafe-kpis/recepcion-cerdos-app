@@ -252,6 +252,11 @@ export function ReporteDiarioLote({
             <p className="text-sm text-slate-800">{recepcion.CapturadoPor || '—'}</p>
           </div>
         </div>
+
+        {/* Pie */}
+        <div className="border-t border-slate-200 px-5 py-3 text-center text-[11px] text-slate-400">
+          Desarrollado por Gestión Técnica Especializada
+        </div>
       </section>
     </div>
   )
