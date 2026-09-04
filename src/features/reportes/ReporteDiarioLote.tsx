@@ -7,10 +7,16 @@ const BASE = import.meta.env.BASE_URL
 /** Siempre es la misma planta (confirmado con el usuario) — no se captura ni se guarda en SharePoint. */
 const PLANTA = 'FRIGOTUN'
 
-/** Convierte "2026-09-03" (como se guarda FechaRecepcion) a "03/09/2026". */
+/**
+ * Convierte la fecha de recepción a "03/09/2026". SharePoint guarda FechaRecepcion como columna
+ * "Fecha y hora", así que Graph la devuelve como fecha-hora completa (ej. "2026-09-03T07:00:00Z"),
+ * no como "2026-09-03" plano — por eso primero se recortan los 10 caracteres de la fecha y luego
+ * se parte por guiones, en vez de partir el string completo directamente.
+ */
 function formatearFecha(iso: string): string {
-  const [anio, mes, dia] = iso.split('-')
-  if (!anio || !mes || !dia) return iso || '—'
+  if (!iso) return '—'
+  const [anio, mes, dia] = iso.slice(0, 10).split('-')
+  if (!anio || !mes || !dia) return iso
   return `${dia}/${mes}/${anio}`
 }
 
