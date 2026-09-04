@@ -13,6 +13,7 @@ export const recepcionSchema = z
     Consecutivo: z.string().trim().min(1, 'Obligatorio — es el consecutivo que ya manejan en planta'),
     NumeroOrden: z.string().trim().min(1, 'Obligatorio'),
     FechaRecepcion: z.string().min(1, 'Obligatorio'),
+    HoraProgramada: z.string().min(1, 'Obligatorio'),
     HoraLlegadaVehiculo: z.string().min(1, 'Obligatorio'),
     HoraInicioDesembarque: z.string().min(1, 'Obligatorio'),
     HoraFinalDesembarque: z.string().min(1, 'Obligatorio'),
