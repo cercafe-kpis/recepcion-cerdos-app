@@ -1,3 +1,5 @@
+import { useRef, useState } from 'react'
+import clsx from 'clsx'
 import type { ConsolidadoTiquete, Recepcion, TipoNovedad } from '../../types/models'
 
 const BASE = import.meta.env.BASE_URL
@@ -5,7 +7,8 @@ const BASE = import.meta.env.BASE_URL
 /** Siempre es la misma planta (confirmado con el usuario) — no se captura ni se guarda en SharePoint. */
 const PLANTA = 'FRIGOTUN'
 
-function fechaCorta(iso: string): string {
+/** Convierte "2026-09-03" (como se guarda FechaRecepcion) a "03/09/2026". */
+function formatearFecha(iso: string): string {
   const [anio, mes, dia] = iso.split('-')
   if (!anio || !mes || !dia) return iso || '—'
   return `${dia}/${mes}/${anio}`
@@ -37,16 +40,15 @@ function agruparPorDestino(tiquetes: ConsolidadoTiquete[], tipo: TipoNovedad): A
   return Array.from(porDestino.entries()).map(([destino, cantidad]) => ({ destino, cantidad }))
 }
 
-const celda = 'border border-slate-700 px-2 py-1'
-const celdaEtiqueta = `${celda} bg-slate-50 font-semibold text-slate-700`
-
 /**
- * Reporte diario por lote — reproduce el formato en papel que ya se le
- * envía a cada asociado apenas termina una recepción (pedido explícito del
- * usuario, con una imagen de referencia). A diferencia de ResumenRecepcion
- * (el resumen genérico usado hoy en el reporte semanal, pendiente de
- * rediseñar), este componente sigue el formato EXACTO de esa plantilla:
- * mismas filas, mismas columnas, mismos rótulos.
+ * Reporte de llegada — el reporte por lote que se le envía a cada asociado
+ * apenas termina una recepción (pedido explícito del usuario, con una
+ * imagen de referencia del formato en papel que ya se usaba). Mantiene los
+ * mismos datos que esa plantilla, con un diseño más cuidado y el logo real
+ * de Cercafe (public/cercafe-logo.jpg), y agrega la opción de descargarlo
+ * como imagen PNG (además de poder imprimirse / exportarse a PDF con
+ * window.print(), que sigue disponible desde donde se usa este componente:
+ * Consolidado.tsx y la pestaña "Diario" de Reporte.tsx).
  *
  * Tiempo de espera y Tiempo de desembarque NO se capturan aparte: se
  * calculan solos a partir de Hora programada / Hora de llegada / Hora de
@@ -65,112 +67,182 @@ export function ReporteDiarioLote({
   placa: string
   tiquetes: ConsolidadoTiquete[]
 }) {
+  const contenedorRef = useRef<HTMLDivElement>(null)
+  const [descargando, setDescargando] = useState(false)
+  const [error, setError] = useState<string>()
+
   const fortuitoTransporte = agruparPorDestino(tiquetes, 'Muerto en Transporte')
   const fortuitoDesembarque = agruparPorDestino(tiquetes, 'Muerto en Desembarque')
   const fortuitoReposo = agruparPorDestino(tiquetes, 'Muerto en Reposo')
 
+  async function descargarImagen() {
+    if (!contenedorRef.current) return
+    setDescargando(true)
+    setError(undefined)
+    try {
+      // Carga html2canvas-pro solo cuando hace falta (es una librería pesada) — la variante
+      // "pro" es necesaria porque Tailwind 4 usa colores oklch() que el html2canvas normal
+      // no sabe interpretar y produciría una imagen en blanco o rota.
+      const { default: html2canvas } = await import('html2canvas-pro')
+      const canvas = await html2canvas(contenedorRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+      })
+      const enlace = document.createElement('a')
+      enlace.download = `reporte-llegada-${recepcion.Consecutivo || 'lote'}.png`
+      enlace.href = canvas.toDataURL('image/png')
+      enlace.click()
+    } catch (err) {
+      setError(`No se pudo generar la imagen: ${(err as Error).message}`)
+    } finally {
+      setDescargando(false)
+    }
+  }
+
   return (
-    <section className="break-inside-avoid overflow-hidden rounded-md border border-slate-700 bg-white text-sm print:break-inside-avoid">
-      <table className="w-full border-collapse">
-        <tbody>
-          <tr>
-            <td className={celdaEtiqueta}>FECHA</td>
-            <td className={celda} colSpan={3}>{fechaCorta(recepcion.FechaRecepcion)}</td>
-            <td className={celdaEtiqueta}>PLANTA</td>
-            <td className={celda} colSpan={4}>{PLANTA}</td>
-          </tr>
-          <tr>
-            <td className={celdaEtiqueta}>ASOCIADO</td>
-            <td className={celda} colSpan={3}>{asociadoNombre}</td>
-            <td className={celdaEtiqueta}>GRANJA</td>
-            <td className={celda} colSpan={4}>{granjaNombre}</td>
-          </tr>
-          <tr>
-            <td className={celdaEtiqueta}>CONSECUTIVO</td>
-            <td className={celda} colSpan={2}>{recepcion.Consecutivo}</td>
-            <td className={celdaEtiqueta}>ORDEN</td>
-            <td className={celda} colSpan={2}>{recepcion.NumeroOrden}</td>
-            <td className={celdaEtiqueta}># ANIMALES</td>
-            <td className={celda} colSpan={2}>{recepcion.NumeroTotalCerdos}</td>
-          </tr>
+    <div>
+      <div className="mb-2 flex items-center justify-end gap-3 print:hidden">
+        {error && <p className="text-xs text-brand-red">{error}</p>}
+        <button
+          type="button"
+          onClick={() => void descargarImagen()}
+          disabled={descargando}
+          className="rounded-md border border-brand-navy px-3 py-1.5 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint disabled:opacity-50"
+        >
+          {descargando ? 'Generando imagen…' : 'Descargar imagen'}
+        </button>
+      </div>
 
-          <tr className="text-center text-xs font-semibold uppercase tracking-wide text-slate-700">
-            <td className={celdaEtiqueta}>Hora programada</td>
-            <td className={celdaEtiqueta}>Hora ingreso</td>
-            <td className={celdaEtiqueta}>Tiempo de espera</td>
-            <td className={celdaEtiqueta}>Hora inicio</td>
-            <td className={celdaEtiqueta}>Hora finalización</td>
-            <td className={celdaEtiqueta}>Tiempo desembarque/min</td>
-            <td className={celdaEtiqueta}>Placa vehículo</td>
-            <td className={`${celdaEtiqueta} text-brand-navy`} rowSpan={2}>
-              <div className="flex flex-col items-center justify-center gap-1">
-                <img src={`${BASE}icon-192.png`} alt="Cercafe" className="h-8 w-8 rounded" />
-                <span className="text-sm font-bold tracking-wide">CERCAFE</span>
-              </div>
-            </td>
-          </tr>
-          <tr className="text-center">
-            <td className={celda}>{horaCorta(recepcion.HoraProgramada)}</td>
-            <td className={celda}>{horaCorta(recepcion.HoraLlegadaVehiculo)}</td>
-            <td className={celda}>{minutosEntre(recepcion.HoraLlegadaVehiculo, recepcion.HoraInicioDesembarque)}</td>
-            <td className={celda}>{horaCorta(recepcion.HoraInicioDesembarque)}</td>
-            <td className={celda}>{horaCorta(recepcion.HoraFinalDesembarque)}</td>
-            <td className={celda}>{minutosEntre(recepcion.HoraInicioDesembarque, recepcion.HoraFinalDesembarque)}</td>
-            <td className={celda}>{placa}</td>
-          </tr>
+      <section
+        ref={contenedorRef}
+        className="mx-auto max-w-3xl overflow-hidden rounded-xl bg-white text-sm shadow-sm ring-1 ring-slate-200 print:break-inside-avoid print:shadow-none"
+      >
+        {/* Encabezado */}
+        <div className="flex items-center justify-between gap-4 border-b-2 border-brand-navy px-5 py-4">
+          <img src={`${BASE}cercafe-logo.jpg`} alt="Cercafe" className="h-11 w-auto" />
+          <div className="text-right">
+            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-brand-red">Reporte de llegada</p>
+            <p className="text-base font-bold text-brand-navy">Consecutivo {recepcion.Consecutivo}</p>
+          </div>
+        </div>
 
-          <tr>
-            <td className="border border-slate-700 bg-amber-300 px-2 py-1 text-center text-xs font-bold uppercase tracking-wide text-slate-800" colSpan={8}>
-              Novedades
-            </td>
-          </tr>
-          <tr className="text-center text-xs font-semibold uppercase tracking-wide text-slate-700">
-            <td className={celdaEtiqueta} rowSpan={2}>Lesión</td>
-            <td className={celdaEtiqueta} rowSpan={2}>Agitados</td>
-            <td className={celdaEtiqueta} rowSpan={2}>Caídos</td>
-            <td className={celdaEtiqueta} colSpan={2}>Fortuito en transporte</td>
-            <td className={celdaEtiqueta} colSpan={2}>Fortuito en desembarque</td>
-            <td className={celdaEtiqueta}>Fortuito en reposo</td>
-          </tr>
-          <tr className="text-center text-xs font-semibold uppercase tracking-wide text-slate-700">
-            <td className={celdaEtiqueta}>#</td>
-            <td className={celdaEtiqueta}>Destino</td>
-            <td className={celdaEtiqueta}>#</td>
-            <td className={celdaEtiqueta}>Destino</td>
-            <td className={celdaEtiqueta}>#</td>
-          </tr>
-          <tr className="text-center">
-            <td className={celda}>{recepcion.NovLlegadaLesionados ? recepcion.NovLlegadaCantLesionados ?? '—' : '—'}</td>
-            <td className={celda}>{recepcion.NovLlegadaAgitados ? recepcion.NovLlegadaCantAgitados ?? '—' : '—'}</td>
-            <td className={celda}>{recepcion.NovLlegadaCaidos ? recepcion.NovLlegadaCantCaidos ?? '—' : '—'}</td>
-            <GrupoFortuito grupos={fortuitoTransporte} />
-            <GrupoFortuito grupos={fortuitoDesembarque} />
-            <td className={celda}>
-              {fortuitoReposo.length === 0 ? (
-                '—'
-              ) : (
-                <div className="flex flex-col">
-                  {fortuitoReposo.map((g) => (
-                    <span key={g.destino}>
-                      {g.cantidad} {g.destino}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </td>
-          </tr>
+        {/* Datos generales */}
+        <div className="grid grid-cols-2 gap-px bg-slate-100 sm:grid-cols-4">
+          <Campo etiqueta="Fecha" valor={formatearFecha(recepcion.FechaRecepcion)} />
+          <Campo etiqueta="Planta" valor={PLANTA} />
+          <Campo etiqueta="Asociado" valor={asociadoNombre} className="sm:col-span-2" />
+          <Campo etiqueta="Granja" valor={granjaNombre} className="sm:col-span-2" />
+          <Campo etiqueta="Orden" valor={recepcion.NumeroOrden} />
+          <Campo etiqueta="# Animales" valor={recepcion.NumeroTotalCerdos} />
+        </div>
 
-          <tr>
-            <td className={celdaEtiqueta}>NOTA</td>
-            <td className={celda} colSpan={7}>{recepcion.Observaciones || '—'}</td>
-          </tr>
-          <tr>
-            <td className={celdaEtiqueta}>ENCARGADO</td>
-            <td className={celda} colSpan={7}>{recepcion.CapturadoPor || '—'}</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
+        {/* Horas */}
+        <div className="px-5 pt-4">
+          <table className="w-full border-collapse overflow-hidden rounded-lg text-center text-xs">
+            <thead>
+              <tr className="bg-brand-navy text-white">
+                <th className="px-2 py-1.5 font-semibold">Hora programada</th>
+                <th className="px-2 py-1.5 font-semibold">Hora ingreso</th>
+                <th className="px-2 py-1.5 font-semibold">Tiempo de espera</th>
+                <th className="px-2 py-1.5 font-semibold">Hora inicio</th>
+                <th className="px-2 py-1.5 font-semibold">Hora finalización</th>
+                <th className="px-2 py-1.5 font-semibold">Tiempo desembarque/min</th>
+                <th className="px-2 py-1.5 font-semibold">Placa vehículo</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="bg-slate-50">
+                <td className="border border-slate-200 px-2 py-1.5">{horaCorta(recepcion.HoraProgramada)}</td>
+                <td className="border border-slate-200 px-2 py-1.5">{horaCorta(recepcion.HoraLlegadaVehiculo)}</td>
+                <td className="border border-slate-200 px-2 py-1.5">
+                  {minutosEntre(recepcion.HoraLlegadaVehiculo, recepcion.HoraInicioDesembarque)}
+                </td>
+                <td className="border border-slate-200 px-2 py-1.5">{horaCorta(recepcion.HoraInicioDesembarque)}</td>
+                <td className="border border-slate-200 px-2 py-1.5">{horaCorta(recepcion.HoraFinalDesembarque)}</td>
+                <td className="border border-slate-200 px-2 py-1.5">
+                  {minutosEntre(recepcion.HoraInicioDesembarque, recepcion.HoraFinalDesembarque)}
+                </td>
+                <td className="border border-slate-200 px-2 py-1.5">{placa}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Novedades */}
+        <div className="mt-4 px-5">
+          <p className="rounded-t-lg bg-amber-400 px-3 py-1.5 text-center text-xs font-bold uppercase tracking-wide text-slate-900">
+            Novedades
+          </p>
+          <table className="w-full border-collapse text-center text-xs">
+            <thead>
+              <tr className="bg-slate-100 text-slate-600">
+                <th className="border border-slate-200 px-2 py-1.5" rowSpan={2}>Lesión</th>
+                <th className="border border-slate-200 px-2 py-1.5" rowSpan={2}>Agitados</th>
+                <th className="border border-slate-200 px-2 py-1.5" rowSpan={2}>Caídos</th>
+                <th className="border border-slate-200 px-2 py-1.5" colSpan={2}>Fortuito en transporte</th>
+                <th className="border border-slate-200 px-2 py-1.5" colSpan={2}>Fortuito en desembarque</th>
+                <th className="border border-slate-200 px-2 py-1.5" rowSpan={2}>Fortuito en reposo</th>
+              </tr>
+              <tr className="bg-slate-100 text-slate-600">
+                <th className="border border-slate-200 px-2 py-1">#</th>
+                <th className="border border-slate-200 px-2 py-1">Destino</th>
+                <th className="border border-slate-200 px-2 py-1">#</th>
+                <th className="border border-slate-200 px-2 py-1">Destino</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="border border-slate-200 px-2 py-1.5">
+                  {recepcion.NovLlegadaLesionados ? recepcion.NovLlegadaCantLesionados ?? '—' : '—'}
+                </td>
+                <td className="border border-slate-200 px-2 py-1.5">
+                  {recepcion.NovLlegadaAgitados ? recepcion.NovLlegadaCantAgitados ?? '—' : '—'}
+                </td>
+                <td className="border border-slate-200 px-2 py-1.5">
+                  {recepcion.NovLlegadaCaidos ? recepcion.NovLlegadaCantCaidos ?? '—' : '—'}
+                </td>
+                <GrupoFortuito grupos={fortuitoTransporte} />
+                <GrupoFortuito grupos={fortuitoDesembarque} />
+                <td className="border border-slate-200 px-2 py-1.5">
+                  {fortuitoReposo.length === 0 ? (
+                    '—'
+                  ) : (
+                    <div className="flex flex-col">
+                      {fortuitoReposo.map((g) => (
+                        <span key={g.destino}>
+                          {g.cantidad} {g.destino}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Nota y encargado */}
+        <div className="mt-4 space-y-2 px-5 pb-5">
+          <div className="rounded-lg bg-slate-50 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Nota</p>
+            <p className="text-sm text-slate-800">{recepcion.Observaciones || '—'}</p>
+          </div>
+          <div className="rounded-lg bg-slate-50 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Encargado</p>
+            <p className="text-sm text-slate-800">{recepcion.CapturadoPor || '—'}</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function Campo({ etiqueta, valor, className }: { etiqueta: string; valor: React.ReactNode; className?: string }) {
+  return (
+    <div className={clsx('bg-white px-3 py-2', className)}>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{etiqueta}</p>
+      <p className="text-sm font-semibold text-slate-900">{valor}</p>
+    </div>
   )
 }
 
@@ -179,21 +251,21 @@ function GrupoFortuito({ grupos }: { grupos: Array<{ cantidad: number; destino: 
   if (grupos.length === 0) {
     return (
       <>
-        <td className={celda}>—</td>
-        <td className={celda}>—</td>
+        <td className="border border-slate-200 px-2 py-1.5">—</td>
+        <td className="border border-slate-200 px-2 py-1.5">—</td>
       </>
     )
   }
   return (
     <>
-      <td className={celda}>
+      <td className="border border-slate-200 px-2 py-1.5">
         <div className="flex flex-col">
           {grupos.map((g) => (
             <span key={g.destino}>{g.cantidad}</span>
           ))}
         </div>
       </td>
-      <td className={celda}>
+      <td className="border border-slate-200 px-2 py-1.5">
         <div className="flex flex-col">
           {grupos.map((g) => (
             <span key={g.destino}>{g.destino}</span>
