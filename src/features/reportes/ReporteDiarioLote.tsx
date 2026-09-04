@@ -132,36 +132,42 @@ export function ReporteDiarioLote({
           <Campo etiqueta="# Animales" valor={recepcion.NumeroTotalCerdos} />
         </div>
 
-        {/* Horas */}
+        {/* Horas — envuelta en overflow-x-auto: en un celular angosto esta tabla de 7 columnas no
+            cabe entera, y sin esto quedaba recortada (se veía hasta "Hora finalización" y ahí se
+            cortaba) en vez de poder deslizarse para ver el resto. El min-w de la tabla es lo que
+            obliga a que aparezca ese scroll horizontal en vez de apretar las columnas hasta
+            volverlas ilegibles. */}
         <div className="px-5 pt-4">
-          <table className="w-full border-collapse overflow-hidden rounded-lg text-center text-xs">
-            <thead>
-              <tr className="bg-brand-navy text-white">
-                <th className="px-2 py-1.5 font-semibold">Hora programada</th>
-                <th className="px-2 py-1.5 font-semibold">Hora ingreso</th>
-                <th className="px-2 py-1.5 font-semibold">Tiempo de espera</th>
-                <th className="px-2 py-1.5 font-semibold">Hora inicio</th>
-                <th className="px-2 py-1.5 font-semibold">Hora finalización</th>
-                <th className="px-2 py-1.5 font-semibold">Tiempo desembarque/min</th>
-                <th className="px-2 py-1.5 font-semibold">Placa vehículo</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="bg-slate-50">
-                <td className="border border-slate-200 px-2 py-1.5">{horaCorta(recepcion.HoraProgramada)}</td>
-                <td className="border border-slate-200 px-2 py-1.5">{horaCorta(recepcion.HoraLlegadaVehiculo)}</td>
-                <td className="border border-slate-200 px-2 py-1.5">
-                  {minutosEntre(recepcion.HoraLlegadaVehiculo, recepcion.HoraInicioDesembarque)}
-                </td>
-                <td className="border border-slate-200 px-2 py-1.5">{horaCorta(recepcion.HoraInicioDesembarque)}</td>
-                <td className="border border-slate-200 px-2 py-1.5">{horaCorta(recepcion.HoraFinalDesembarque)}</td>
-                <td className="border border-slate-200 px-2 py-1.5">
-                  {minutosEntre(recepcion.HoraInicioDesembarque, recepcion.HoraFinalDesembarque)}
-                </td>
-                <td className="border border-slate-200 px-2 py-1.5">{placa}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse overflow-hidden rounded-lg text-center text-xs">
+              <thead>
+                <tr className="bg-brand-navy text-white">
+                  <th className="px-2 py-1.5 font-semibold">Hora programada</th>
+                  <th className="px-2 py-1.5 font-semibold">Hora ingreso</th>
+                  <th className="px-2 py-1.5 font-semibold">Tiempo de espera</th>
+                  <th className="px-2 py-1.5 font-semibold">Hora inicio</th>
+                  <th className="px-2 py-1.5 font-semibold">Hora finalización</th>
+                  <th className="px-2 py-1.5 font-semibold">Tiempo desembarque/min</th>
+                  <th className="px-2 py-1.5 font-semibold">Placa vehículo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="bg-slate-50">
+                  <td className="border border-slate-200 px-2 py-1.5">{horaCorta(recepcion.HoraProgramada)}</td>
+                  <td className="border border-slate-200 px-2 py-1.5">{horaCorta(recepcion.HoraLlegadaVehiculo)}</td>
+                  <td className="border border-slate-200 px-2 py-1.5">
+                    {minutosEntre(recepcion.HoraLlegadaVehiculo, recepcion.HoraInicioDesembarque)}
+                  </td>
+                  <td className="border border-slate-200 px-2 py-1.5">{horaCorta(recepcion.HoraInicioDesembarque)}</td>
+                  <td className="border border-slate-200 px-2 py-1.5">{horaCorta(recepcion.HoraFinalDesembarque)}</td>
+                  <td className="border border-slate-200 px-2 py-1.5">
+                    {minutosEntre(recepcion.HoraInicioDesembarque, recepcion.HoraFinalDesembarque)}
+                  </td>
+                  <td className="border border-slate-200 px-2 py-1.5">{placa}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Novedades — se arma con flexbox (nada de rowSpan/colSpan de tabla): html2canvas-pro calcula
