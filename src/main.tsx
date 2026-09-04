@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { MsalProvider } from '@azure/msal-react'
 import { BrowserRouter } from 'react-router-dom'
 import { msalInstance } from './auth/msalInstance'
+import { registrarServiceWorker } from './registrarServiceWorker'
 import App from './App'
 import './index.css'
 
@@ -20,6 +21,8 @@ import './index.css'
 const esVentanaEmergenteDeLogin = window.opener !== null && window.opener !== window
 
 if (!esVentanaEmergenteDeLogin) {
+  registrarServiceWorker()
+
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <MsalProvider instance={msalInstance}>
