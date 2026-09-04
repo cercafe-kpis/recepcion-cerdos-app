@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { descargarElementoComoImagen } from '../../utils/descargarImagen'
 import type { ConsolidadoTiquete, Recepcion } from '../../types/models'
 
 const BASE = import.meta.env.BASE_URL
@@ -192,16 +193,8 @@ export function ReporteSemanalAsociado({
     setDescargando(true)
     setError(undefined)
     try {
-      // Misma librería y misma razón que en ReporteDiarioLote.tsx: html2canvas-pro (no el
-      // html2canvas normal) porque Tailwind 4 usa colores oklch() que la versión normal no
-      // interpreta bien.
-      const { default: html2canvas } = await import('html2canvas-pro')
-      const canvas = await html2canvas(contenedorRef.current, { backgroundColor: '#ffffff', scale: 2 })
-      const enlace = document.createElement('a')
       const nombreArchivo = nombreEncabezado.trim().toLowerCase().replace(/\s+/g, '-')
-      enlace.download = `informe-semanal-${nombreArchivo}-semana${numeroSemana}.png`
-      enlace.href = canvas.toDataURL('image/png')
-      enlace.click()
+      await descargarElementoComoImagen(contenedorRef.current, `informe-semanal-${nombreArchivo}-semana${numeroSemana}.png`)
     } catch (err) {
       setError(`No se pudo generar la imagen: ${(err as Error).message}`)
     } finally {
