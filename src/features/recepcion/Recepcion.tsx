@@ -184,17 +184,22 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
         </SeccionFormulario>
 
         <SeccionFormulario titulo="Novedad de llegada">
-          <div className="space-y-2">
+          {/* sm:col-span-2 saca cada novedad de la grilla de 2 columnas que usa SeccionFormulario
+              y la vuelve una tarjeta propia de ancho completo — antes, con la grilla, "Caído" y
+              "Agitado" podían terminar visualmente pegados debajo de "Lesionado" apenas este se
+              expandía (checkbox + cantidad + beneficio de emergencia), dando la impresión de que
+              una novedad estaba anidada dentro de otra. */}
+          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
             <CampoCheckbox etiqueta="Lesionado" {...register('NovLlegadaLesionados')} />
             {watch('NovLlegadaLesionados') && (
               <>
                 <CampoTexto type="number" step="1" etiqueta="Cantidad lesionados" {...register('NovLlegadaCantLesionados')} error={errors.NovLlegadaCantLesionados?.message} />
-                <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia? (no se recuperó)" {...register('NovLlegadaLesionadosBeneficioEmergencia')} />
+                <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia por la lesión? (no se recuperó)" {...register('NovLlegadaLesionadosBeneficioEmergencia')} />
                 {watch('NovLlegadaLesionadosBeneficioEmergencia') && (
                   <CampoTexto
                     type="number"
                     step="1"
-                    etiqueta="Cantidad beneficiados de emergencia"
+                    etiqueta="Cantidad beneficiados de emergencia por lesión"
                     {...register('NovLlegadaCantLesionadosBeneficioEmergencia')}
                     error={errors.NovLlegadaCantLesionadosBeneficioEmergencia?.message}
                   />
@@ -202,17 +207,17 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
               </>
             )}
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
             <CampoCheckbox etiqueta="Caído" {...register('NovLlegadaCaidos')} />
             {watch('NovLlegadaCaidos') && (
               <>
                 <CampoTexto type="number" step="1" etiqueta="Cantidad caídos" {...register('NovLlegadaCantCaidos')} error={errors.NovLlegadaCantCaidos?.message} />
-                <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia? (no se recuperó)" {...register('NovLlegadaCaidosBeneficioEmergencia')} />
+                <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia por la caída? (no se recuperó)" {...register('NovLlegadaCaidosBeneficioEmergencia')} />
                 {watch('NovLlegadaCaidosBeneficioEmergencia') && (
                   <CampoTexto
                     type="number"
                     step="1"
-                    etiqueta="Cantidad beneficiados de emergencia"
+                    etiqueta="Cantidad beneficiados de emergencia por caída"
                     {...register('NovLlegadaCantCaidosBeneficioEmergencia')}
                     error={errors.NovLlegadaCantCaidosBeneficioEmergencia?.message}
                   />
@@ -220,17 +225,17 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
               </>
             )}
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
             <CampoCheckbox etiqueta="Agitado" {...register('NovLlegadaAgitados')} />
             {watch('NovLlegadaAgitados') && (
               <>
                 <CampoTexto type="number" step="1" etiqueta="Cantidad agitados" {...register('NovLlegadaCantAgitados')} error={errors.NovLlegadaCantAgitados?.message} />
-                <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia? (no se recuperó)" {...register('NovLlegadaAgitadosBeneficioEmergencia')} />
+                <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia por estar agitado? (no se recuperó)" {...register('NovLlegadaAgitadosBeneficioEmergencia')} />
                 {watch('NovLlegadaAgitadosBeneficioEmergencia') && (
                   <CampoTexto
                     type="number"
                     step="1"
-                    etiqueta="Cantidad beneficiados de emergencia"
+                    etiqueta="Cantidad beneficiados de emergencia por agitación"
                     {...register('NovLlegadaCantAgitadosBeneficioEmergencia')}
                     error={errors.NovLlegadaCantAgitadosBeneficioEmergencia?.message}
                   />
