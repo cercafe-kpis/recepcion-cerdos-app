@@ -107,10 +107,23 @@ export interface Recepcion extends CapturaOffline {
   CoincideGuiaICAvsQR: boolean
   NovLlegadaLesionados: boolean
   NovLlegadaCantLesionados?: number
+  /**
+   * De los lesionados/caídos/agitados de arriba, cuántos NO se recuperaron y
+   * tocó beneficiar de emergencia — solo esos generan tiquete en Consolidado
+   * (ver generarTiquetesFaltantes() en src/graph/lists.ts). Los que sí se
+   * recuperan quedan solo como la novedad de llegada, sin tiquete, y salen
+   * con el resto del lote.
+   */
+  NovLlegadaLesionadosBeneficioEmergencia: boolean
+  NovLlegadaCantLesionadosBeneficioEmergencia?: number
   NovLlegadaCaidos: boolean
   NovLlegadaCantCaidos?: number
+  NovLlegadaCaidosBeneficioEmergencia: boolean
+  NovLlegadaCantCaidosBeneficioEmergencia?: number
   NovLlegadaAgitados: boolean
   NovLlegadaCantAgitados?: number
+  NovLlegadaAgitadosBeneficioEmergencia: boolean
+  NovLlegadaCantAgitadosBeneficioEmergencia?: number
   FortuitoMuertoTransporte: boolean
   FortuitoCantMuertoTransporte?: number
   FortuitoMuertoDesembarque: boolean
