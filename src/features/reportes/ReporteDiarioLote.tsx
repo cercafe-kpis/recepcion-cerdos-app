@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import clsx from 'clsx'
+import { descargarElementoComoImagen } from '../../utils/descargarImagen'
 import type { ConsolidadoTiquete, Recepcion, TipoNovedad } from '../../types/models'
 
 const BASE = import.meta.env.BASE_URL
@@ -86,18 +87,7 @@ export function ReporteDiarioLote({
     setDescargando(true)
     setError(undefined)
     try {
-      // Carga html2canvas-pro solo cuando hace falta (es una librería pesada) — la variante
-      // "pro" es necesaria porque Tailwind 4 usa colores oklch() que el html2canvas normal
-      // no sabe interpretar y produciría una imagen en blanco o rota.
-      const { default: html2canvas } = await import('html2canvas-pro')
-      const canvas = await html2canvas(contenedorRef.current, {
-        backgroundColor: '#ffffff',
-        scale: 2,
-      })
-      const enlace = document.createElement('a')
-      enlace.download = `reporte-llegada-${recepcion.Consecutivo || 'lote'}.png`
-      enlace.href = canvas.toDataURL('image/png')
-      enlace.click()
+      await descargarElementoComoImagen(contenedorRef.current, `reporte-llegada-${recepcion.Consecutivo || 'lote'}.png`)
     } catch (err) {
       setError(`No se pudo generar la imagen: ${(err as Error).message}`)
     } finally {
