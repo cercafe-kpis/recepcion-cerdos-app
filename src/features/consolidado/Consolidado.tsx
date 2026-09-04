@@ -5,7 +5,7 @@ import { db } from '../../offline/db'
 import { cachearTiquetesDeRecepcion, guardarEdicionTiqueteLocal, sincronizar } from '../../offline/syncService'
 import { generarTiqueteMuertoReposo, generarTiquetesFaltantes, obtenerNovedadCorralDeRecepcion } from '../../graph/lists'
 import { CampoSelect } from '../../components/CamposFormulario'
-import { ResumenRecepcion } from '../reportes/ResumenRecepcion'
+import { ReporteDiarioLote } from '../reportes/ReporteDiarioLote'
 import type { ConsolidadoTiquete, Destino, Usuario } from '../../types/models'
 
 /**
@@ -175,7 +175,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                       Imprimir / Descargar PDF
                     </button>
                   </div>
-                  <ResumenRecepcion
+                  <ReporteDiarioLote
                     recepcion={recepcion}
                     asociadoNombre={asociado?.Title ?? '—'}
                     granjaNombre={granja?.Title ?? '—'}
