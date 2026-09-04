@@ -360,10 +360,16 @@ function mapFieldsARecepcion(item: { id: string; fields: Record<string, unknown>
     CoincideGuiaICAvsQR: Boolean(f.CoincideGuiaICAvsQR),
     NovLlegadaLesionados: Boolean(f.NovLlegadaLesionados),
     NovLlegadaCantLesionados: numeroOpcional(f.NovLlegadaCantLesionados),
+    NovLlegadaLesionadosBeneficioEmergencia: Boolean(f.NovLlegadaLesionadosBeneficioEmergencia),
+    NovLlegadaCantLesionadosBeneficioEmergencia: numeroOpcional(f.NovLlegadaCantLesionadosBeneficioEmergencia),
     NovLlegadaCaidos: Boolean(f.NovLlegadaCaidos),
     NovLlegadaCantCaidos: numeroOpcional(f.NovLlegadaCantCaidos),
+    NovLlegadaCaidosBeneficioEmergencia: Boolean(f.NovLlegadaCaidosBeneficioEmergencia),
+    NovLlegadaCantCaidosBeneficioEmergencia: numeroOpcional(f.NovLlegadaCantCaidosBeneficioEmergencia),
     NovLlegadaAgitados: Boolean(f.NovLlegadaAgitados),
     NovLlegadaCantAgitados: numeroOpcional(f.NovLlegadaCantAgitados),
+    NovLlegadaAgitadosBeneficioEmergencia: Boolean(f.NovLlegadaAgitadosBeneficioEmergencia),
+    NovLlegadaCantAgitadosBeneficioEmergencia: numeroOpcional(f.NovLlegadaCantAgitadosBeneficioEmergencia),
     FortuitoMuertoTransporte: Boolean(f.FortuitoMuertoTransporte),
     FortuitoCantMuertoTransporte: numeroOpcional(f.FortuitoCantMuertoTransporte),
     FortuitoMuertoDesembarque: Boolean(f.FortuitoMuertoDesembarque),
@@ -587,6 +593,14 @@ export async function actualizarTiquete(
  * Cantidad > 0 en una Recepción o NovedadCorral ya sincronizada, crea las
  * filas de ConsolidadoTiquetes que falten (una por animal) hasta igualar la
  * Cantidad. Nunca borra una fila que ya tenga Tiquete diligenciado.
+ *
+ * Para "Novedad de llegada" (Lesionado/Caído/Agitado) la Cantidad que cuenta
+ * acá es la de BENEFICIO DE EMERGENCIA, no el total reportado al llegar: un
+ * animal lesionado/caído/agitado que se recupera sigue con el resto del lote
+ * y no necesita tiquete — solo lleva tiquete el que no se recupera y toca
+ * beneficiar de emergencia (ver el checkbox correspondiente en Recepcion.tsx
+ * y el comentario en models.ts). El total reportado solo se usa para
+ * mostrarlo en el reporte diario por lote (ReporteDiarioLote.tsx).
  */
 export async function generarTiquetesFaltantes(recepcion: Recepcion): Promise<void> {
   if (!recepcion.spId) {
@@ -599,9 +613,9 @@ export async function generarTiquetesFaltantes(recepcion: Recepcion): Promise<vo
     tipo: ConsolidadoTiquete['TipoNovedad']
     cantidad: number | undefined
   }> = [
-    { grupo: 'Novedad de llegada', tipo: 'Lesionado', cantidad: recepcion.NovLlegadaCantLesionados },
-    { grupo: 'Novedad de llegada', tipo: 'Caído', cantidad: recepcion.NovLlegadaCantCaidos },
-    { grupo: 'Novedad de llegada', tipo: 'Agitado', cantidad: recepcion.NovLlegadaCantAgitados },
+    { grupo: 'Novedad de llegada', tipo: 'Lesionado', cantidad: recepcion.NovLlegadaCantLesionadosBeneficioEmergencia },
+    { grupo: 'Novedad de llegada', tipo: 'Caído', cantidad: recepcion.NovLlegadaCantCaidosBeneficioEmergencia },
+    { grupo: 'Novedad de llegada', tipo: 'Agitado', cantidad: recepcion.NovLlegadaCantAgitadosBeneficioEmergencia },
     { grupo: 'Fortuito', tipo: 'Muerto en Transporte', cantidad: recepcion.FortuitoCantMuertoTransporte },
     { grupo: 'Fortuito', tipo: 'Muerto en Desembarque', cantidad: recepcion.FortuitoCantMuertoDesembarque },
     // Muerto en Reposo viene de NovedadCorral, no de Recepcion — se genera
