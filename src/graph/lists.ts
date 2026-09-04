@@ -393,6 +393,28 @@ export async function listarRecepcionesEnProceso(): Promise<Recepcion[]> {
 }
 
 /**
+ * Trae TODAS las Recepciones (En proceso o Completo) cuya FechaRecepcion cae
+ * en el rango [desde, hasta] (fechas 'YYYY-MM-DD', ambas inclusive) —
+ * a diferencia de listarRecepcionesEnProceso(), esta SÍ trae recepciones ya
+ * completas. La usa la pantalla Reporte (src/features/reportes/Reporte.tsx)
+ * bajo demanda (nunca se descarga sola en segundo plano ni se guarda en
+ * Dexie), así que no reintroduce el problema de que cada dispositivo vaya
+ * acumulando cada vez más historial — eso sigue reservado exclusivamente
+ * para las recepciones "En proceso" (ver comentario arriba).
+ */
+export async function listarRecepcionesPorRangoFecha(desde: string, hasta: string): Promise<Recepcion[]> {
+  const desdeISO = `${desde}T00:00:00Z`
+  const hastaFecha = new Date(`${hasta}T00:00:00Z`)
+  hastaFecha.setUTCDate(hastaFecha.getUTCDate() + 1)
+  const hastaISO = hastaFecha.toISOString()
+  const items = await listItems<Record<string, unknown>>(
+    'Recepciones',
+    `$expand=fields&$filter=fields/FechaRecepcion ge '${desdeISO}' and fields/FechaRecepcion lt '${hastaISO}'&$top=999`,
+  )
+  return items.map(mapFieldsARecepcion)
+}
+
+/**
  * AsociadoId, GranjaId y PlacaVehiculoId son columnas de tipo Lookup en
  * SharePoint (ver Arquitectura-App-Recepcion-Cerdos.md sección 4): Graph solo
  * las acepta bajo el nombre `<Columna>LookupId` y con el id NUMÉRICO del
