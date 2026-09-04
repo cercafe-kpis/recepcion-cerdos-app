@@ -174,57 +174,71 @@ export function ReporteDiarioLote({
           </table>
         </div>
 
-        {/* Novedades */}
+        {/* Novedades — se arma con flexbox (nada de rowSpan/colSpan de tabla): html2canvas-pro calcula
+            mal el alto de las celdas combinadas de una <table> y produce una imagen descargada con
+            texto encimado, aunque en pantalla y al imprimir (que sí usa el motor real del navegador)
+            se vea bien. Con flexbox el resultado es idéntico en los tres casos. */}
         <div className="mt-4 px-5">
           <p className="rounded-t-lg bg-amber-400 px-3 py-1.5 text-center text-xs font-bold uppercase tracking-wide text-slate-900">
             Novedades
           </p>
-          <table className="w-full border-collapse text-center text-xs">
-            <thead>
-              <tr className="bg-slate-100 text-slate-600">
-                <th className="border border-slate-200 px-2 py-1.5" rowSpan={2}>Lesión</th>
-                <th className="border border-slate-200 px-2 py-1.5" rowSpan={2}>Agitados</th>
-                <th className="border border-slate-200 px-2 py-1.5" rowSpan={2}>Caídos</th>
-                <th className="border border-slate-200 px-2 py-1.5" colSpan={2}>Fortuito en transporte</th>
-                <th className="border border-slate-200 px-2 py-1.5" colSpan={2}>Fortuito en desembarque</th>
-                <th className="border border-slate-200 px-2 py-1.5" rowSpan={2}>Fortuito en reposo</th>
-              </tr>
-              <tr className="bg-slate-100 text-slate-600">
-                <th className="border border-slate-200 px-2 py-1">#</th>
-                <th className="border border-slate-200 px-2 py-1">Destino</th>
-                <th className="border border-slate-200 px-2 py-1">#</th>
-                <th className="border border-slate-200 px-2 py-1">Destino</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="border border-slate-200 px-2 py-1.5">
-                  {recepcion.NovLlegadaLesionados ? recepcion.NovLlegadaCantLesionados ?? '—' : '—'}
-                </td>
-                <td className="border border-slate-200 px-2 py-1.5">
-                  {recepcion.NovLlegadaAgitados ? recepcion.NovLlegadaCantAgitados ?? '—' : '—'}
-                </td>
-                <td className="border border-slate-200 px-2 py-1.5">
-                  {recepcion.NovLlegadaCaidos ? recepcion.NovLlegadaCantCaidos ?? '—' : '—'}
-                </td>
-                <GrupoFortuito grupos={fortuitoTransporte} />
-                <GrupoFortuito grupos={fortuitoDesembarque} />
-                <td className="border border-slate-200 px-2 py-1.5">
-                  {fortuitoReposo.length === 0 ? (
-                    '—'
-                  ) : (
-                    <div className="flex flex-col">
-                      {fortuitoReposo.map((g) => (
-                        <span key={g.destino}>
-                          {g.cantidad} {g.destino}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div className="overflow-hidden rounded-b-lg border border-t-0 border-slate-200 text-center text-xs">
+            <div className="flex bg-slate-100 text-slate-600">
+              <div className="flex flex-1 items-center justify-center border-r border-slate-200 px-1 py-1.5 font-semibold">
+                Lesión
+              </div>
+              <div className="flex flex-1 items-center justify-center border-r border-slate-200 px-1 py-1.5 font-semibold">
+                Agitados
+              </div>
+              <div className="flex flex-1 items-center justify-center border-r border-slate-200 px-1 py-1.5 font-semibold">
+                Caídos
+              </div>
+              <div className="flex flex-1 flex-col border-r border-slate-200">
+                <p className="border-b border-slate-200 px-1 py-1.5">Fortuito en transporte</p>
+                <div className="flex flex-1">
+                  <p className="flex-1 border-r border-slate-200 px-1 py-1">#</p>
+                  <p className="flex-1 px-1 py-1">Destino</p>
+                </div>
+              </div>
+              <div className="flex flex-1 flex-col border-r border-slate-200">
+                <p className="border-b border-slate-200 px-1 py-1.5">Fortuito en desembarque</p>
+                <div className="flex flex-1">
+                  <p className="flex-1 border-r border-slate-200 px-1 py-1">#</p>
+                  <p className="flex-1 px-1 py-1">Destino</p>
+                </div>
+              </div>
+              <div className="flex flex-1 items-center justify-center px-1 py-1.5 font-semibold">
+                Fortuito en reposo
+              </div>
+            </div>
+
+            <div className="flex border-t border-slate-200">
+              <div className="flex-1 border-r border-slate-200 px-1 py-1.5">
+                {recepcion.NovLlegadaLesionados ? recepcion.NovLlegadaCantLesionados ?? '—' : '—'}
+              </div>
+              <div className="flex-1 border-r border-slate-200 px-1 py-1.5">
+                {recepcion.NovLlegadaAgitados ? recepcion.NovLlegadaCantAgitados ?? '—' : '—'}
+              </div>
+              <div className="flex-1 border-r border-slate-200 px-1 py-1.5">
+                {recepcion.NovLlegadaCaidos ? recepcion.NovLlegadaCantCaidos ?? '—' : '—'}
+              </div>
+              <FilaFortuito grupos={fortuitoTransporte} />
+              <FilaFortuito grupos={fortuitoDesembarque} />
+              <div className="flex-1 px-1 py-1.5">
+                {fortuitoReposo.length === 0 ? (
+                  '—'
+                ) : (
+                  <div className="flex flex-col">
+                    {fortuitoReposo.map((g) => (
+                      <span key={g.destino}>
+                        {g.cantidad} {g.destino}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Nota y encargado */}
@@ -253,31 +267,31 @@ function Campo({ etiqueta, valor, className }: { etiqueta: string; valor: React.
 }
 
 /** Fortuito en transporte / desembarque muestran # y Destino en columnas separadas — una fila por cada Destino distinto que haya. */
-function GrupoFortuito({ grupos }: { grupos: Array<{ cantidad: number; destino: string }> }) {
-  if (grupos.length === 0) {
-    return (
-      <>
-        <td className="border border-slate-200 px-2 py-1.5">—</td>
-        <td className="border border-slate-200 px-2 py-1.5">—</td>
-      </>
-    )
-  }
+function FilaFortuito({ grupos }: { grupos: Array<{ cantidad: number; destino: string }> }) {
   return (
-    <>
-      <td className="border border-slate-200 px-2 py-1.5">
-        <div className="flex flex-col">
-          {grupos.map((g) => (
-            <span key={g.destino}>{g.cantidad}</span>
-          ))}
-        </div>
-      </td>
-      <td className="border border-slate-200 px-2 py-1.5">
-        <div className="flex flex-col">
-          {grupos.map((g) => (
-            <span key={g.destino}>{g.destino}</span>
-          ))}
-        </div>
-      </td>
-    </>
+    <div className="flex flex-1 border-r border-slate-200">
+      <div className="flex-1 border-r border-slate-200 px-1 py-1.5">
+        {grupos.length === 0 ? (
+          '—'
+        ) : (
+          <div className="flex flex-col">
+            {grupos.map((g) => (
+              <span key={g.destino}>{g.cantidad}</span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="flex-1 px-1 py-1.5">
+        {grupos.length === 0 ? (
+          '—'
+        ) : (
+          <div className="flex flex-col">
+            {grupos.map((g) => (
+              <span key={g.destino}>{g.destino}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
