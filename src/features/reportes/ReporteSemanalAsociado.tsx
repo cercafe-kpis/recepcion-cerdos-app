@@ -95,7 +95,13 @@ function semaforo(porcentaje: number): { bg: string } {
   return { bg: 'bg-brand-red' }
 }
 
-const claseBadge = 'rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800'
+// whitespace-nowrap + shrink-0: sin esto, en una ventana angosta el texto de la píldora se
+// partía en dos líneas por DENTRO en vez de que la píldora completa bajara de línea — el
+// contenedor ya es flex-wrap (ver "flex flex-wrap gap-1.5" donde se usa esta clase), así que
+// forzando a cada píldora a mantenerse en una sola línea, la que no cabe entera simplemente pasa
+// a la siguiente fila en vez de quedar recortada/montada sobre la fila de abajo.
+const claseBadge =
+  'shrink-0 whitespace-nowrap rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800'
 
 /**
  * Informe semanal de novedades en corrales — reproduce el formato del PDF de referencia que
