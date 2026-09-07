@@ -3,6 +3,7 @@ import { useMsal } from '@azure/msal-react'
 import clsx from 'clsx'
 import type { Usuario } from '../types/models'
 import { useEstadoSync } from '../offline/useEstadoSync'
+import { aplicarActualizacionDisponible, useActualizacionDisponible } from '../registrarServiceWorker'
 
 const BASE = import.meta.env.BASE_URL
 
@@ -19,6 +20,7 @@ export function Navbar({ usuario }: { usuario: Usuario }) {
   const { instance } = useMsal()
   const { enLinea, pendientes, conflictos, sincronizando, ultimoErrorSync, descartarErrorSync, sincronizarAhora } =
     useEstadoSync()
+  const hayActualizacion = useActualizacionDisponible()
 
   return (
     <header className="border-b border-slate-200 bg-white print:hidden">
@@ -97,6 +99,24 @@ export function Navbar({ usuario }: { usuario: Usuario }) {
           </button>
         </div>
       </div>
+
+      {hayActualizacion && (
+        <div className="border-t border-brand-navy/20 bg-brand-navy-tint px-4 py-2">
+          <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
+            <p className="text-xs text-brand-navy">
+              Hay una versión nueva de la app lista. Termina lo que estés haciendo (guarda o descarga lo que
+              necesites) y actualiza cuando puedas.
+            </p>
+            <button
+              type="button"
+              onClick={aplicarActualizacionDisponible}
+              className="shrink-0 rounded-md bg-brand-navy px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-navy-hover"
+            >
+              Actualizar ahora
+            </button>
+          </div>
+        </div>
+      )}
 
       {ultimoErrorSync && (
         <div className="border-t border-red-200 bg-red-50 px-4 py-2">
