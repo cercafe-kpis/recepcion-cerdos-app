@@ -53,6 +53,32 @@ function calcularNitidez(ancho: number, alto: number): number {
   return Math.min(NITIDEZ_DESEADA, Math.max(1, segura))
 }
 
+/**
+ * Límite de tiempo total para generar la imagen (esperar fuentes/imágenes + dibujarla). Sin esto,
+ * si algo interno de dom-to-image-more se queda esperando (por ejemplo una fuente o un recurso que
+ * nunca termina de resolverse en ese navegador/red en particular) el botón se quedaba en
+ * "Generando imagen…" PARA SIEMPRE, sin ningún error — porque nada dentro de la librería garantiza
+ * que la promesa que devuelve toBlob() se resuelva o falle en un tiempo razonable. Mismo patrón que
+ * ya usa src/graph/client.ts para no quedarse esperando indefinidamente a Microsoft.
+ */
+const LIMITE_TIEMPO_MS = 25000
+
+function conLimiteDeTiempo<T>(promesa: Promise<T>, ms: number, mensaje: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const temporizador = setTimeout(() => reject(new Error(mensaje)), ms)
+    promesa.then(
+      (valor) => {
+        clearTimeout(temporizador)
+        resolve(valor)
+      },
+      (error) => {
+        clearTimeout(temporizador)
+        reject(error)
+      },
+    )
+  })
+}
+
 /** Espera a que el navegador termine de pintar dos cuadros — dos requestAnimationFrame
  * encadenados (no uno solo) porque el primero solo garantiza que el navegador YA VA a pintar el
  * frame actual, no que terminó de aplicar los estilos/layout más recientes; el segundo sí se
@@ -122,16 +148,32 @@ export async function descargarElementoComoImagen(elemento: HTMLElement, nombreA
 
   let blob: Blob
   try {
-    await esperarListoParaCapturar(clon)
+    blob = await conLimiteDeTiempo(
+      (async () => {
+        await esperarListoParaCapturar(clon)
 
-    const ancho = clon.getBoundingClientRect().width || ANCHO_CAPTURA
-    const alto = clon.scrollHeight || clon.getBoundingClientRect().height || 800
+        const ancho = clon.getBoundingClientRect().width || ANCHO_CAPTURA
+        const alto = clon.scrollHeight || clon.getBoundingClientRect().height || 800
 
-    blob = await domtoimage.toBlob(clon, {
-      bgcolor: '#ffffff',
-      pixelRatio: calcularNitidez(ancho, alto),
-      cacheBust: true,
-    })
+        return domtoimage.toBlob(clon, {
+          bgcolor: '#ffffff',
+          pixelRatio: calcularNitidez(ancho, alto),
+          cacheBust: true,
+          // Esta app no usa ninguna fuente web propia (@font-face) — solo la fuente del sistema
+          // que ya trae Tailwind por defecto (ver src/index.css) — así que no hay nada que
+          // "incrustar" aquí. Dejarlo activado (el valor por defecto) hace que la librería igual
+          // revise TODAS las hojas de estilo de la app buscando fuentes que nunca va a encontrar,
+          // un paso de más que no cambia el resultado en nada y es un lugar más donde algo se
+          // podría quedar pegado. httpTimeout más corto (por defecto son 30s) por la misma razón:
+          // todo lo que la imagen necesita (el logo de Cercafe) ya viene incluido en la misma app,
+          // no hay ningún motivo para que tarde tanto en confirmar que sí se puede cargar.
+          disableEmbedFonts: true,
+          httpTimeout: 8000,
+        })
+      })(),
+      LIMITE_TIEMPO_MS,
+      'La generación de la imagen tardó demasiado y se canceló. Vuelve a intentarlo — si sigue sin funcionar, usa el enlace "Imprimir / Descargar PDF" como alternativa.',
+    )
   } finally {
     document.body.removeChild(contenedor)
   }
