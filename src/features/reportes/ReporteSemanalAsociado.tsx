@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
-import { descargarElementoComoImagen } from '../../utils/descargarImagen'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { descargarElementoComoImagen, precargarLibreriaDeImagen } from '../../utils/descargarImagen'
 import type { ConsolidadoTiquete, Recepcion } from '../../types/models'
 
 const BASE = import.meta.env.BASE_URL
@@ -135,6 +135,13 @@ export function ReporteSemanalAsociado({
   const contenedorRef = useRef<HTMLDivElement>(null)
   const [descargando, setDescargando] = useState(false)
   const [error, setError] = useState<string>()
+  const [descargada, setDescargada] = useState(false)
+
+  // Precarga dom-to-image-more apenas se muestra este reporte en pantalla — ver el comentario de
+  // precargarLibreriaDeImagen() en descargarImagen.ts.
+  useEffect(() => {
+    precargarLibreriaDeImagen()
+  }, [])
 
   const numeroSemana = numeroSemanaISO(desde)
   const rangoMayus = formatearRangoSemana(desde, hasta, true)
@@ -198,9 +205,11 @@ export function ReporteSemanalAsociado({
     if (!contenedorRef.current) return
     setDescargando(true)
     setError(undefined)
+    setDescargada(false)
     try {
       const nombreArchivo = nombreEncabezado.trim().toLowerCase().replace(/\s+/g, '-')
       await descargarElementoComoImagen(contenedorRef.current, `informe-semanal-${nombreArchivo}-semana${numeroSemana}.png`)
+      setDescargada(true)
     } catch (err) {
       setError(`No se pudo generar la imagen: ${(err as Error).message}`)
     } finally {
@@ -214,6 +223,7 @@ export function ReporteSemanalAsociado({
     <div className="print:break-before-page">
       <div className="mb-2 flex items-center justify-end gap-3 print:hidden">
         {error && <p className="text-xs text-brand-red">{error}</p>}
+        {descargada && !error && <p className="text-xs font-medium text-emerald-600">Imagen descargada ✓</p>}
         <button
           type="button"
           onClick={() => void descargarImagen()}
