@@ -15,3 +15,21 @@
 body {
   @apply bg-slate-50 text-slate-800;
 }
+
+/*
+ * Por defecto, "Imprimir" / "Guardar como PDF" del navegador NO imprime los fondos de color ni
+ * las imágenes de fondo — los quita para ahorrar tinta, a menos que la persona marque a mano la
+ * casilla "Gráficos de fondo" en el cuadro de diálogo de impresión (algo que casi nadie conoce ni
+ * activa). Por eso el PDF de los reportes (fila roja/verde del semáforo, franja naranja de
+ * "Novedades", píldoras de colores, encabezados con fondo azul marino, etc.) se veía plano/blanco
+ * comparado con "Descargar imagen", que sí captura los colores tal cual se ven en pantalla.
+ * print-color-adjust: exact (con el prefijo -webkit- para Chrome/Edge/Safari, que todavía no
+ * reconocen la versión sin prefijo) le dice al navegador que SIEMPRE imprima los fondos exactos,
+ * sin depender de esa casilla — así el PDF queda igual de fiel a los colores que la imagen.
+ */
+@media print {
+  * {
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+}
