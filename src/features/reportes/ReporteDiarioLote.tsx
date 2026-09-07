@@ -115,10 +115,18 @@ export function ReporteDiarioLote({
       >
         {/* Encabezado */}
         <div className="flex items-center justify-between gap-4 border-b-2 border-brand-navy px-5 py-4">
-          <img src={`${BASE}cercafe-logo.jpg`} alt="Cercafe" className="h-11 w-auto" />
+          <img src={`${BASE}cercafe-logo.jpg`} alt="Cercafe" className="h-11 w-auto shrink-0" />
+          {/* whitespace-nowrap: sin esto, "Reporte de llegada" (con tracking-[0.2em], que hace la
+              palabra bastante más ancha de lo normal) se podía partir en dos líneas — y como este
+              div no tiene una altura fija, la segunda línea ("LLEGADA") terminaba montada encima
+              de "Consecutivo {número}" en vez de empujarlo hacia abajo. Con el logo también con
+              shrink-0 (para que nunca se achique y le quite espacio a este lado), este bloque
+              siempre tiene el ancho de sobra que necesita para quedar en una sola línea cada uno. */}
           <div className="text-right">
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-brand-red">Reporte de llegada</p>
-            <p className="text-base font-bold text-brand-navy">Consecutivo {recepcion.Consecutivo}</p>
+            <p className="whitespace-nowrap text-[11px] font-bold uppercase tracking-[0.2em] text-brand-red">
+              Reporte de llegada
+            </p>
+            <p className="whitespace-nowrap text-base font-bold text-brand-navy">Consecutivo {recepcion.Consecutivo}</p>
           </div>
         </div>
 
