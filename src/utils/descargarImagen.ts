@@ -2,6 +2,14 @@
  * Descarga (o comparte, en el celular) un elemento del DOM como imagen PNG — usado por el botón
  * "Descargar imagen" de ReporteDiarioLote.tsx y ReporteSemanalAsociado.tsx.
  *
+ * Usa dom-to-image-more en vez de html2canvas-pro (que se usaba antes): html2canvas-pro vuelve a
+ * DIBUJAR a mano cada texto/borde/imagen sobre un <canvas> reinterpretando el CSS él mismo, y esa
+ * reinterpretación es la que se veía "un poco borrosa" sin importar cuánta resolución se le
+ * subiera — es una limitación de cómo dibuja el texto, no de la resolución. dom-to-image-more en
+ * cambio empaqueta el HTML/CSS real dentro de un SVG y deja que el propio motor del navegador lo
+ * pinte (con su mismo renderizador de texto de siempre, el mismo que se ve nítido en pantalla), y
+ * ahí sí se puede pedir además una resolución más alta (pixelRatio) sin ese límite de nitidez.
+ *
  * En computador, un <a download> con un blob: funciona directo y descarga el archivo. En el
  * celular NO: los navegadores móviles (sobre todo Safari de iPhone, y más todavía los
  * "navegadores" internos de apps como WhatsApp o Instagram cuando se abre un enlace desde ahí)
@@ -14,49 +22,35 @@
  */
 
 /**
- * Ancho "de escritorio" que se le fuerza a html2canvas-pro para capturar, sin importar el ancho
+ * Ancho "de escritorio" con el que se arma el clon oculto que se captura, sin importar el ancho
  * real de la pantalla del celular. Sin esto, la captura usa el ancho real del dispositivo (unos
  * 360-390px en un celular angosto) — como las secciones de los reportes tienen `overflow-hidden`
  * (para que se vean las esquinas redondeadas) y las tablas anchas (Horas en el reporte diario,
  * Detalle por lote en el semanal) no se achican más allá de cierto punto, el resultado era una
- * imagen con columnas recortadas a la mitad. Con un ancho de ventana fijo, la captura siempre usa
- * el mismo layout ancho ya probado en computador, sin importar desde qué celular se descargue.
+ * imagen con columnas recortadas a la mitad. El propio ancho máximo del reporte (max-w-3xl /
+ * max-w-4xl de Tailwind) hace el resto: 1100 es solo un ancho de sobra para que ese máximo se
+ * alcance siempre, sin importar desde qué celular se descargue.
  */
 const ANCHO_CAPTURA = 1100
 
 /**
  * Nitidez de la imagen: cuántos píxeles reales se dibujan por cada píxel del diseño. Más alto =
- * más nítido (sobre todo el texto y el logo, que es lo que se veía "un poco borroso"), pero el
- * PNG final también pesa más. 3 es el techo deseado — se usa siempre que el informe no sea
- * demasiado largo.
+ * más nítido, pero el PNG final también pesa más. 3 es el techo deseado — se usa siempre que el
+ * informe no sea demasiado largo.
  *
  * El techo de abajo (AREA_MAXIMA_PX) es la razón por la que esto no es simplemente "3" fijo: los
  * navegadores (sobre todo Safari en iPhone) tienen un límite de tamaño para un <canvas> — un
  * informe semanal de un grupo con varias granjas y vehículos con novedades puede salir bastante
  * largo, y multiplicar TODO ese largo por 3 podía pasarse de ese límite y devolver una imagen en
- * blanco o rota. calcularEscala() por eso calcula, para cada informe, la escala más nítida posible
+ * blanco o rota. calcularNitidez() por eso calcula, para cada informe, la nitidez más alta posible
  * que sigue siendo segura para su tamaño real — nunca más de 3.
  */
-const ESCALA_DESEADA = 3
+const NITIDEZ_DESEADA = 3
 const AREA_MAXIMA_PX = 16_000_000
 
-/**
- * Calcula qué tan nítida puede salir la captura sin arriesgarse a pasar el límite de tamaño de
- * <canvas> del navegador. El ancho que de verdad va a usar la imagen es el max-width que ya trae
- * la sección del informe (768px o 896px, según ReporteDiarioLote.tsx / ReporteSemanalAsociado.tsx)
- * — se lee del propio elemento en vez de suponerlo, para que esto sirva para los dos sin
- * distinción. El alto real no se puede saber de antemano (depende del contenido), así que se usa
- * el alto actual del elemento como estimado — en un celular angosto ese alto suele ser IGUAL o
- * MAYOR al que tendría ya ensanchado (el texto se acomoda en menos líneas al haber más espacio),
- * así que quedarse corto en la estimación es del lado seguro: en el peor caso la imagen sale un
- * poco menos nítida de lo posible, nunca rota.
- */
-function calcularEscala(elemento: HTMLElement): number {
-  const anchoMaximo = parseFloat(getComputedStyle(elemento).maxWidth)
-  const ancho = Number.isFinite(anchoMaximo) && anchoMaximo > 0 ? anchoMaximo : elemento.getBoundingClientRect().width || 800
-  const alto = elemento.scrollHeight || elemento.getBoundingClientRect().height || 800
-  const escalaSegura = Math.sqrt(AREA_MAXIMA_PX / (ancho * alto))
-  return Math.min(ESCALA_DESEADA, Math.max(1, escalaSegura))
+function calcularNitidez(ancho: number, alto: number): number {
+  const segura = Math.sqrt(AREA_MAXIMA_PX / (ancho * alto))
+  return Math.min(NITIDEZ_DESEADA, Math.max(1, segura))
 }
 
 /** Espera a que el navegador termine de pintar dos cuadros — dos requestAnimationFrame
@@ -79,13 +73,11 @@ function esperarImagen(img: HTMLImageElement): Promise<void> {
 }
 
 /**
- * Se asegura de que el elemento esté realmente listo para capturarse antes de llamar a
- * html2canvas-pro: espera las fuentes (document.fonts.ready), espera que todas las imágenes de
- * adentro (el logo de Cercafe) hayan terminado de cargar, y espera dos frames de pintado. Sin
- * esto, la primera vez que se usa "Descargar imagen" después de abrir la app (cuando el logo
- * puede no estar completamente decodificado todavía) la captura podía salir con el logo enorme,
- * borroso y sin los estilos aplicados — una carrera entre html2canvas-pro y el navegador
- * terminando de acomodar la página.
+ * Se asegura de que el elemento esté realmente listo para capturarse: espera las fuentes
+ * (document.fonts.ready), espera que todas las imágenes de adentro (el logo de Cercafe) hayan
+ * terminado de cargar, y espera dos frames de pintado. Sin esto, la captura podía salir con el
+ * logo o el texto a medio cargar — una carrera entre la librería y el navegador terminando de
+ * acomodar la página.
  */
 async function esperarListoParaCapturar(elemento: HTMLElement): Promise<void> {
   if (typeof document.fonts !== 'undefined') {
@@ -96,24 +88,52 @@ async function esperarListoParaCapturar(elemento: HTMLElement): Promise<void> {
   await esperarProximoFrame()
 }
 
-export async function descargarElementoComoImagen(elemento: HTMLElement, nombreArchivo: string): Promise<void> {
-  // Variante "pro" de html2canvas: la normal no interpreta los colores oklch() de Tailwind 4 y
-  // produciría una imagen en blanco o rota. Se carga solo cuando hace falta (es una librería
-  // pesada), no en el paquete principal de la app.
-  const { default: html2canvas } = await import('html2canvas-pro')
-
-  await esperarListoParaCapturar(elemento)
-
-  const canvas = await html2canvas(elemento, {
-    backgroundColor: '#ffffff',
-    scale: calcularEscala(elemento),
-    windowWidth: ANCHO_CAPTURA,
-    windowHeight: Math.max(elemento.scrollHeight, window.innerHeight),
+/**
+ * Arma un clon del reporte fuera de la pantalla (con `position: fixed` y muy a la izquierda, no
+ * con `display: none` — eso sí impediría medirlo) metido en un contenedor de ancho fijo. Como el
+ * reporte ya trae su propio ancho máximo (max-w-3xl / max-w-4xl de Tailwind) y se centra con
+ * mx-auto, basta con darle al contenedor un ancho de sobra para que el reporte alcance ese máximo
+ * — el mismo ancho que ya se ve bien en computador — en vez de quedarse con el ancho angosto real
+ * de la pantalla del celular. Se captura este clon en vez del elemento visible en pantalla para
+ * que nadie vea el "salto" de ancho mientras se genera la imagen.
+ */
+function crearClonAnchoFijo(elemento: HTMLElement): { clon: HTMLElement; contenedor: HTMLElement } {
+  const contenedor = document.createElement('div')
+  contenedor.setAttribute('aria-hidden', 'true')
+  Object.assign(contenedor.style, {
+    position: 'fixed',
+    top: '0',
+    left: '-100000px',
+    width: `${ANCHO_CAPTURA}px`,
+    pointerEvents: 'none',
   })
 
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-  if (!blob) {
-    throw new Error('No se pudo generar la imagen.')
+  const clon = elemento.cloneNode(true) as HTMLElement
+  contenedor.appendChild(clon)
+  document.body.appendChild(contenedor)
+
+  return { clon, contenedor }
+}
+
+export async function descargarElementoComoImagen(elemento: HTMLElement, nombreArchivo: string): Promise<void> {
+  const { default: domtoimage } = await import('dom-to-image-more')
+
+  const { clon, contenedor } = crearClonAnchoFijo(elemento)
+
+  let blob: Blob
+  try {
+    await esperarListoParaCapturar(clon)
+
+    const ancho = clon.getBoundingClientRect().width || ANCHO_CAPTURA
+    const alto = clon.scrollHeight || clon.getBoundingClientRect().height || 800
+
+    blob = await domtoimage.toBlob(clon, {
+      bgcolor: '#ffffff',
+      pixelRatio: calcularNitidez(ancho, alto),
+      cacheBust: true,
+    })
+  } finally {
+    document.body.removeChild(contenedor)
   }
 
   const archivo = new File([blob], nombreArchivo, { type: 'image/png' })
