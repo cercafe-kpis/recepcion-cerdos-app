@@ -24,6 +24,41 @@
  */
 const ANCHO_CAPTURA = 1100
 
+/**
+ * Nitidez de la imagen: cuántos píxeles reales se dibujan por cada píxel del diseño. Más alto =
+ * más nítido (sobre todo el texto y el logo, que es lo que se veía "un poco borroso"), pero el
+ * PNG final también pesa más. 3 es el techo deseado — se usa siempre que el informe no sea
+ * demasiado largo.
+ *
+ * El techo de abajo (AREA_MAXIMA_PX) es la razón por la que esto no es simplemente "3" fijo: los
+ * navegadores (sobre todo Safari en iPhone) tienen un límite de tamaño para un <canvas> — un
+ * informe semanal de un grupo con varias granjas y vehículos con novedades puede salir bastante
+ * largo, y multiplicar TODO ese largo por 3 podía pasarse de ese límite y devolver una imagen en
+ * blanco o rota. calcularEscala() por eso calcula, para cada informe, la escala más nítida posible
+ * que sigue siendo segura para su tamaño real — nunca más de 3.
+ */
+const ESCALA_DESEADA = 3
+const AREA_MAXIMA_PX = 16_000_000
+
+/**
+ * Calcula qué tan nítida puede salir la captura sin arriesgarse a pasar el límite de tamaño de
+ * <canvas> del navegador. El ancho que de verdad va a usar la imagen es el max-width que ya trae
+ * la sección del informe (768px o 896px, según ReporteDiarioLote.tsx / ReporteSemanalAsociado.tsx)
+ * — se lee del propio elemento en vez de suponerlo, para que esto sirva para los dos sin
+ * distinción. El alto real no se puede saber de antemano (depende del contenido), así que se usa
+ * el alto actual del elemento como estimado — en un celular angosto ese alto suele ser IGUAL o
+ * MAYOR al que tendría ya ensanchado (el texto se acomoda en menos líneas al haber más espacio),
+ * así que quedarse corto en la estimación es del lado seguro: en el peor caso la imagen sale un
+ * poco menos nítida de lo posible, nunca rota.
+ */
+function calcularEscala(elemento: HTMLElement): number {
+  const anchoMaximo = parseFloat(getComputedStyle(elemento).maxWidth)
+  const ancho = Number.isFinite(anchoMaximo) && anchoMaximo > 0 ? anchoMaximo : elemento.getBoundingClientRect().width || 800
+  const alto = elemento.scrollHeight || elemento.getBoundingClientRect().height || 800
+  const escalaSegura = Math.sqrt(AREA_MAXIMA_PX / (ancho * alto))
+  return Math.min(ESCALA_DESEADA, Math.max(1, escalaSegura))
+}
+
 /** Espera a que el navegador termine de pintar dos cuadros — dos requestAnimationFrame
  * encadenados (no uno solo) porque el primero solo garantiza que el navegador YA VA a pintar el
  * frame actual, no que terminó de aplicar los estilos/layout más recientes; el segundo sí se
@@ -71,7 +106,7 @@ export async function descargarElementoComoImagen(elemento: HTMLElement, nombreA
 
   const canvas = await html2canvas(elemento, {
     backgroundColor: '#ffffff',
-    scale: 2,
+    scale: calcularEscala(elemento),
     windowWidth: ANCHO_CAPTURA,
     windowHeight: Math.max(elemento.scrollHeight, window.innerHeight),
   })
