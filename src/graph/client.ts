@@ -1,4 +1,4 @@
-import { InteractionRequiredAuthError } from '@azure/msal-browser'
+import { BrowserAuthError, InteractionRequiredAuthError } from '@azure/msal-browser'
 import { msalInstance } from '../auth/msalInstance'
 import { graphScopes } from '../auth/msalConfig'
 
@@ -69,16 +69,37 @@ async function getAccessToken(): Promise<string> {
     msalInstance.setActiveAccount(primera)
     account = primera
   }
-  try {
-    const result = await conLimiteDeTiempo(
+  const intentar = () =>
+    conLimiteDeTiempo(
       msalInstance.acquireTokenSilent({ scopes: graphScopes, account }),
       TOKEN_TIMEOUT_MS,
       'Se agotó el tiempo de espera confirmando la sesión con Microsoft.',
     )
+
+  try {
+    const result = await intentar()
     return result.accessToken
   } catch (err) {
     if (err instanceof InteractionRequiredAuthError) {
       throw new Error('Tu sesión de Microsoft venció. Cierra sesión (botón "Salir") y vuelve a iniciar sesión.')
+    }
+    // BrowserAuthError (p. ej. "timed_out", el que salía tal cual en pantalla con el enlace a
+    // aka.ms/msal.js.errors) pasa cuando el navegador no deja completar en segundo plano la
+    // confirmación silenciosa con Microsoft — la misma causa de fondo que ya explica el comentario
+    // de arriba (sobre todo el bloqueo de cookies de terceros, cada vez más común incluso fuera de
+    // InPrivate). Antes de rendirse se reintenta UNA vez: si fue solo un tropiezo pasajero de red,
+    // el segundo intento sí sirve; si el navegador de verdad está bloqueando la técnica, va a
+    // volver a fallar y ahí sí se le explica a la persona qué hacer, en vez de mostrarle el error
+    // técnico de MSAL tal cual.
+    if (err instanceof BrowserAuthError) {
+      try {
+        const result = await intentar()
+        return result.accessToken
+      } catch {
+        throw new Error(
+          'No se pudo confirmar la sesión con Microsoft en segundo plano. Cierra sesión (botón "Salir") y vuelve a iniciar sesión.',
+        )
+      }
     }
     throw err
   }
