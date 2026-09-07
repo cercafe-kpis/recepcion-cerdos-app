@@ -172,6 +172,13 @@ export function precargarLibreriaDeImagen() {
   void cargarLibreria()
 }
 
+/** true solo en celular/tablet de verdad — no alcanza con que el navegador tenga la Web Share
+ * API con soporte de archivos, porque Windows también la tiene y ahí no es lo que se necesita
+ * (ver el comentario donde se usa, más abajo). */
+function esMovilDeVerdad(): boolean {
+  return /Android|iPhone|iPad|iPod|Mobi/i.test(navigator.userAgent)
+}
+
 export async function descargarElementoComoImagen(elemento: HTMLElement, nombreArchivo: string): Promise<void> {
   const { default: domtoimage } = await cargarLibreria()
 
@@ -211,7 +218,16 @@ export async function descargarElementoComoImagen(elemento: HTMLElement, nombreA
 
   const archivo = new File([blob], nombreArchivo, { type: 'image/png' })
 
-  if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [archivo] })) {
+  // esMovilDeVerdad(): Windows (Edge/Chrome) también sabe responder navigator.canShare() con
+  // archivos que sí — no es solo cosa de celular como se pensaba al escribir esto la primera vez.
+  // Sin este chequeo, en computador se abría el panel nativo de "Compartir" de Windows (pensado
+  // para enviar a otro dispositivo o app) en vez de simplemente guardar el archivo — algo que no
+  // se parece en nada al botón "Descargar imagen" que la persona espera, y que si no se completa
+  // (o se completa eligiendo algo que no guarda nada localmente) se sentía exactamente como "hace
+  // el intento pero no descarga nada". En computador YA funciona bien el <a download> de abajo
+  // (funcionaba desde antes de agregar esto), así que la Web Share API se reserva para cuando de
+  // verdad hace falta: un celular, donde <a download> sí se ignora.
+  if (esMovilDeVerdad() && typeof navigator.canShare === 'function' && navigator.canShare({ files: [archivo] })) {
     try {
       await navigator.share({ files: [archivo] })
       return
@@ -224,12 +240,20 @@ export async function descargarElementoComoImagen(elemento: HTMLElement, nombreA
   }
 
   const url = URL.createObjectURL(blob)
-  try {
-    const enlace = document.createElement('a')
-    enlace.download = nombreArchivo
-    enlace.href = url
-    enlace.click()
-  } finally {
-    URL.revokeObjectURL(url)
-  }
+  const enlace = document.createElement('a')
+  enlace.download = nombreArchivo
+  enlace.href = url
+  // El <a> se agrega al documento (aunque sea invisible) antes del clic, y se quita apenas
+  // después: en varios navegadores, un clic hecho por código sobre un <a> que nunca estuvo metido
+  // en la página no dispara la descarga de forma confiable — necesita estar "montado" para que
+  // cuente igual que un clic real.
+  document.body.appendChild(enlace)
+  enlace.click()
+  document.body.removeChild(enlace)
+  // revokeObjectURL() se demora a propósito en vez de llamarse ya mismo: el navegador lee el
+  // contenido del blob: URL en segundo plano, DESPUÉS de que el clic ya retornó — revocarlo de
+  // inmediato (como se hacía antes, en un finally justo después del clic) podía ganarle esa
+  // carrera y dejar al navegador leyendo un blob: URL que ya no apunta a nada, y ahí la descarga
+  // se cae en silencio. Con este margen le da tiempo de sobra a que ya haya alcanzado a leerlo.
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
