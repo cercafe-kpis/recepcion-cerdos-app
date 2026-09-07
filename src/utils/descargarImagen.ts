@@ -141,8 +141,39 @@ function crearClonAnchoFijo(elemento: HTMLElement): { clon: HTMLElement; contene
   return { clon, contenedor }
 }
 
+/**
+ * dom-to-image-more (~25 KB) se carga aparte del resto de la app (import() dinámico) para no
+ * hacer más pesada la carga inicial — pero eso significa que la PRIMERA vez que se usa en toda la
+ * sesión, el navegador tiene que ir a buscar ese archivo y ejecutarlo antes de poder hacer nada
+ * más, lo que le agrega uno o dos segundos de más justo a ese primer intento. Ese segundo de más
+ * puede ser la diferencia entre que el clic en "Descargar imagen" todavía cuente como una acción
+ * directa de la persona (lo que el navegador exige para dejar descargar un archivo sin pedir
+ * permiso) o no — y si no cuenta, el navegador puede simplemente IGNORAR la descarga sin avisar
+ * nada, en vez de mostrar un error. Por eso precargarLibreriaDeImagen() se llama apenas se
+ * muestra el reporte en pantalla (ver el useEffect en ReporteDiarioLote.tsx /
+ * ReporteSemanalAsociado.tsx) — así, para cuando la persona alcanza a tocar "Descargar imagen",
+ * ese archivo ya está descargado y lista para usarse, y todo el proceso corre de una sola vez,
+ * rápido, sin ese primer tropiezo. import() con el mismo nombre de módulo siempre devuelve la
+ * misma promesa ya resuelta la segunda vez que se pide, así que llamarlo de más acá no repite la
+ * descarga ni hace nada de más.
+ */
+function importarLibreria() {
+  return import('dom-to-image-more')
+}
+
+let cargaLibreria: ReturnType<typeof importarLibreria> | undefined
+
+function cargarLibreria() {
+  cargaLibreria ??= importarLibreria()
+  return cargaLibreria
+}
+
+export function precargarLibreriaDeImagen() {
+  void cargarLibreria()
+}
+
 export async function descargarElementoComoImagen(elemento: HTMLElement, nombreArchivo: string): Promise<void> {
-  const { default: domtoimage } = await import('dom-to-image-more')
+  const { default: domtoimage } = await cargarLibreria()
 
   const { clon, contenedor } = crearClonAnchoFijo(elemento)
 
