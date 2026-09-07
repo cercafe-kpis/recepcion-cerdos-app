@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { descargarElementoComoImagen } from '../../utils/descargarImagen'
+import { descargarElementoComoImagen, precargarLibreriaDeImagen } from '../../utils/descargarImagen'
 import type { ConsolidadoTiquete, Recepcion, TipoNovedad } from '../../types/models'
 
 const BASE = import.meta.env.BASE_URL
@@ -77,17 +77,29 @@ export function ReporteDiarioLote({
   const contenedorRef = useRef<HTMLDivElement>(null)
   const [descargando, setDescargando] = useState(false)
   const [error, setError] = useState<string>()
+  const [descargada, setDescargada] = useState(false)
 
   const fortuitoTransporte = agruparPorDestino(tiquetes, 'Muerto en Transporte')
   const fortuitoDesembarque = agruparPorDestino(tiquetes, 'Muerto en Desembarque')
   const fortuitoReposo = agruparPorDestino(tiquetes, 'Muerto en Reposo')
 
+  // Precarga dom-to-image-more apenas se muestra este reporte en pantalla (no espera a que se
+  // toque "Descargar imagen") — ver el comentario de precargarLibreriaDeImagen() en
+  // descargarImagen.ts: sin esto, el primer clic de la sesión paga el costo de ir a buscar esa
+  // librería en ese momento, lo que puede alcanzar a que el navegador ya no cuente la descarga
+  // como una acción directa de la persona y la ignore sin avisar.
+  useEffect(() => {
+    precargarLibreriaDeImagen()
+  }, [])
+
   async function descargarImagen() {
     if (!contenedorRef.current) return
     setDescargando(true)
     setError(undefined)
+    setDescargada(false)
     try {
       await descargarElementoComoImagen(contenedorRef.current, `reporte-llegada-${recepcion.Consecutivo || 'lote'}.png`)
+      setDescargada(true)
     } catch (err) {
       setError(`No se pudo generar la imagen: ${(err as Error).message}`)
     } finally {
@@ -99,6 +111,7 @@ export function ReporteDiarioLote({
     <div>
       <div className="mb-2 flex items-center justify-end gap-3 print:hidden">
         {error && <p className="text-xs text-brand-red">{error}</p>}
+        {descargada && !error && <p className="text-xs font-medium text-emerald-600">Imagen descargada ✓</p>}
         <button
           type="button"
           onClick={() => void descargarImagen()}
