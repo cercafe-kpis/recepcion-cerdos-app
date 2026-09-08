@@ -31,6 +31,20 @@ export default defineConfig({
       // ver src/offline/db.ts — el service worker solo se encarga de los archivos estáticos).
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        // jsPDF (usado por descargarElementoComoPDF, en src/utils/descargarImagen.ts, para el
+        // botón "Descargar / Compartir PDF") trae, sin que esta app los use nunca, tres paquetes
+        // opcionales de más de 200 KB en total: html2canvas, dompurify y canvg — solo hacen falta
+        // para su método .html() (convertir una página HTML entera a PDF), que aquí NO se usa
+        // (el PDF se arma a partir de la imagen ya capturada, con addImage()). Como jsPDF los
+        // pide con un import() dinámico, Vite los separa solos en su propio archivo cada uno —
+        // así que normalmente nunca se descargan, a menos que algo llegue a llamar ese método
+        // .html(). El problema es que, sin esta exclusión, el service worker los precachea IGUAL
+        // (por el globPatterns de arriba, que agarra todo lo que haya en dist), obligando a
+        // cualquier celular a bajarse esos 200+ KB de más cada vez que se instala o actualiza la
+        // app, sin que sirvan para nada. Los nombres (html2canvas-*, purify.es-*, index.es-* —
+        // este último es el paquete canvg) son fijos, aunque la parte final del nombre (el hash)
+        // cambie en cada build.
+        globIgnores: ['**/html2canvas-*.js', '**/purify.es-*.js', '**/index.es-*.js'],
         // Borra del caché del navegador las versiones de archivos de despliegues anteriores en
         // cuanto el service worker nuevo queda activo, para que no se vayan acumulando.
         cleanupOutdatedCaches: true,
