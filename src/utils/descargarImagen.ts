@@ -296,6 +296,14 @@ async function compartirOGuardarArchivo(
       // descarga directa de abajo como respaldo).
       if (err instanceof Error && err.name === 'AbortError') return { metodo: 'compartir' }
       razonRespaldo = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+      // *** Aviso TEMPORAL de diagnóstico — quitar este alert() cuando ya no haga falta ***
+      // El cuadro amarillo (ver ResultadoCompartir) no servía para nada en la práctica: apenas
+      // navigator.share() falla, las líneas de abajo abren el PDF en el visor de Safari (porque
+      // Safari no respeta el download de un blob: para un PDF), y esa navegación se comía el aviso
+      // antes de que se alcanzara a ver — pasara en la misma pestaña o en una nueva. alert() en
+      // cambio DETIENE todo lo que sigue hasta que la persona toque "Aceptar" — como se llama
+      // ANTES de esas líneas, el aviso se alcanza a leer siempre, sin importar qué pase después.
+      window.alert(`[Diagnóstico temporal] No se pudo compartir directo.\n\n${razonRespaldo}`)
     }
   }
 
