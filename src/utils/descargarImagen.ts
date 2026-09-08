@@ -260,7 +260,18 @@ async function compartirOGuardarArchivo(archivo: File, alProgresar?: (mensaje: s
   // pero no descarga nada". En computador YA funciona bien el <a download> de abajo (funcionaba
   // desde antes de agregar esto), así que la Web Share API se reserva para cuando de verdad hace
   // falta: un celular, donde <a download> sí se ignora.
-  if (esMovilDeVerdad() && typeof navigator.canShare === 'function' && navigator.canShare({ files: [archivo] })) {
+  //
+  // Antes esto se llamaba solo si navigator.canShare({ files: [archivo] }) primero decía que sí
+  // se podía — pero con el PDF (a diferencia de la imagen PNG, que sí funcionaba bien así) eso
+  // hacía que en iPhone canShare() devolviera que NO para el PDF, cayera al método de "descarga"
+  // de abajo, y como Safari no respeta el download de un blob: para un PDF (en vez de descargarlo
+  // lo ABRE en su propio visor), la persona terminaba compartiéndolo desde el botón de "Compartir"
+  // DEL VISOR de Safari en vez del de esta app — y ese visor sí manda, de su cosecha, un enlace
+  // "blob:..." de más junto con el archivo (un enlace que además no le sirve a quien lo reciba:
+  // solo es válido dentro de ese celular en ese momento). La solución es no confiar en la
+  // respuesta de canShare() e intentar directo compartir con navigator.share() — si de verdad no
+  // se puede, share() por sí solo ya avisa con un error, que se atrapa aquí abajo igual.
+  if (esMovilDeVerdad() && typeof navigator.share === 'function') {
     try {
       await navigator.share({ files: [archivo] })
       return
