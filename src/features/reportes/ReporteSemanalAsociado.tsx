@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
+  compartirOGuardarArchivo,
   descargarElementoComoImagen,
-  descargarElementoComoPDF,
+  generarArchivoPDF,
   precargarLibreriaDeImagen,
 } from '../../utils/descargarImagen'
 import type { ConsolidadoTiquete, Recepcion } from '../../types/models'
@@ -145,6 +146,10 @@ export function ReporteSemanalAsociado({
   const [errorPDF, setErrorPDF] = useState<string>()
   const [pdfListo, setPdfListo] = useState(false)
   const [avisoPDF, setAvisoPDF] = useState<string>()
+  // El PDF ya armado, listo para compartir — separado de "generarlo" (ver el comentario grande en
+  // generarArchivoPDF(), en descargarImagen.ts, sobre por qué armar y compartir el PDF ya no
+  // pueden ir en el mismo clic).
+  const [archivoPDF, setArchivoPDF] = useState<File>()
 
   // Precarga dom-to-image-more apenas se muestra este reporte en pantalla — ver el comentario de
   // precargarLibreriaDeImagen() en descargarImagen.ts.
@@ -237,7 +242,28 @@ export function ReporteSemanalAsociado({
   // navegador (window.print()) — a pedido de Nathalia, ahora genera el PDF directamente y, en el
   // celular, abre de una la hoja de "Compartir" (donde aparece WhatsApp) en vez de pasar primero
   // por la vista previa de impresión.
-  async function compartirPDF() {
+  //
+  // Este botón ahora hace UNA de dos cosas según si el PDF ya está armado o no (ver el comentario
+  // grande en generarArchivoPDF(), en descargarImagen.ts, sobre por qué se separó en dos pasos):
+  // la primera vez arma el archivo (lo lento) y lo deja guardado en archivoPDF; de ahí en adelante,
+  // cada clic llama compartirOGuardarArchivo() DE INMEDIATO, sin ningún await por delante, para que
+  // Safari en iPhone todavía reconozca ese clic como el gesto directo de la persona.
+  async function generarOCompartirPDF() {
+    if (archivoPDF) {
+      setErrorPDF(undefined)
+      setAvisoPDF(undefined)
+      try {
+        const resultado = await compartirOGuardarArchivo(archivoPDF)
+        setPdfListo(true)
+        // Ver el comentario de ResultadoCompartir en descargarImagen.ts — aviso temporal mientras
+        // se diagnostica el problema del enlace "blob:..." de más en WhatsApp.
+        if (resultado.metodo === 'descarga' && resultado.razonRespaldo) setAvisoPDF(resultado.razonRespaldo)
+      } catch (err) {
+        setErrorPDF(`No se pudo compartir el PDF: ${(err as Error).message}`)
+      }
+      return
+    }
+
     if (!contenedorRef.current) return
     setGenerandoPDF(true)
     setErrorPDF(undefined)
@@ -245,14 +271,11 @@ export function ReporteSemanalAsociado({
     setAvisoPDF(undefined)
     try {
       const nombreArchivo = nombreEncabezado.trim().toLowerCase().replace(/\s+/g, '-')
-      const resultado = await descargarElementoComoPDF(
+      const archivo = await generarArchivoPDF(
         contenedorRef.current,
         `informe-semanal-${nombreArchivo}-semana${numeroSemana}.pdf`,
       )
-      setPdfListo(true)
-      // Ver el comentario de ResultadoCompartir en descargarImagen.ts — aviso temporal mientras se
-      // diagnostica el problema del enlace "blob:..." de más en WhatsApp.
-      if (resultado.metodo === 'descarga' && resultado.razonRespaldo) setAvisoPDF(resultado.razonRespaldo)
+      setArchivoPDF(archivo)
     } catch (err) {
       setErrorPDF(`No se pudo generar el PDF: ${(err as Error).message}`)
     } finally {
@@ -283,14 +306,14 @@ export function ReporteSemanalAsociado({
           {descargando ? 'Generando imagen…' : 'Descargar imagen'}
         </button>
         {errorPDF && <p className="text-xs text-brand-red">{errorPDF}</p>}
-        {pdfListo && !errorPDF && <p className="text-xs font-medium text-emerald-600">PDF listo ✓</p>}
+        {pdfListo && !errorPDF && <p className="text-xs font-medium text-emerald-600">PDF enviado ✓</p>}
         <button
           type="button"
-          onClick={() => void compartirPDF()}
+          onClick={() => void generarOCompartirPDF()}
           disabled={generandoPDF}
           className="rounded-md border border-brand-navy px-3 py-1.5 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint disabled:opacity-50"
         >
-          {generandoPDF ? 'Generando PDF…' : 'Descargar / Compartir PDF'}
+          {generandoPDF ? 'Generando PDF…' : archivoPDF ? 'Compartir / Descargar PDF' : 'Generar PDF'}
         </button>
       </div>
       {/* Aviso TEMPORAL (quitar cuando ya no haga falta) — ver el comentario de ResultadoCompartir
