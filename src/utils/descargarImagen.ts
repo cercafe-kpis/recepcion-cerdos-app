@@ -244,11 +244,25 @@ async function capturarComoPNG(
 }
 
 /**
+ * Qué método se usó al final para entregar el archivo, y por qué — ReporteDiarioLote.tsx /
+ * ReporteSemanalAsociado.tsx lo muestran como un aviso chiquito solo cuando NO se pudo compartir
+ * directo, temporalmente, mientras se termina de diagnosticar por qué en algunos celulares
+ * (reportado primero en un iPhone) el PDF no se comparte directo a WhatsApp sino que cae al
+ * método de descarga — que es justo el que hace que WhatsApp reciba también un enlace "blob:..."
+ * de más (ver el comentario grande más abajo, donde se usa). Con este aviso visible, la próxima
+ * vez que pase se puede ver ahí mismo el motivo exacto en vez de tener que adivinar.
+ */
+export type ResultadoCompartir = { metodo: 'compartir' | 'descarga'; razonRespaldo?: string }
+
+/**
  * Comparte (en el celular) o descarga (en computador) un archivo ya generado — el mismo paso
  * final que necesitan tanto la imagen PNG como el PDF, así que vive en un solo lugar en vez de
  * repetirse en las dos funciones de abajo.
  */
-async function compartirOGuardarArchivo(archivo: File, alProgresar?: (mensaje: string) => void): Promise<void> {
+async function compartirOGuardarArchivo(
+  archivo: File,
+  alProgresar?: (mensaje: string) => void,
+): Promise<ResultadoCompartir> {
   alProgresar?.('Guardando…')
 
   // esMovilDeVerdad(): Windows (Edge/Chrome) también sabe responder navigator.canShare() con
@@ -271,15 +285,17 @@ async function compartirOGuardarArchivo(archivo: File, alProgresar?: (mensaje: s
   // solo es válido dentro de ese celular en ese momento). La solución es no confiar en la
   // respuesta de canShare() e intentar directo compartir con navigator.share() — si de verdad no
   // se puede, share() por sí solo ya avisa con un error, que se atrapa aquí abajo igual.
+  let razonRespaldo: string | undefined
   if (esMovilDeVerdad() && typeof navigator.share === 'function') {
     try {
       await navigator.share({ files: [archivo] })
-      return
+      return { metodo: 'compartir' }
     } catch (err) {
       // El usuario cerró la hoja de "Compartir" sin elegir nada — no es un error real, no hay
       // nada más que hacer (a diferencia de cualquier otro problema, que sí cae al método de
       // descarga directa de abajo como respaldo).
-      if (err instanceof Error && err.name === 'AbortError') return
+      if (err instanceof Error && err.name === 'AbortError') return { metodo: 'compartir' }
+      razonRespaldo = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
     }
   }
 
@@ -300,16 +316,17 @@ async function compartirOGuardarArchivo(archivo: File, alProgresar?: (mensaje: s
   // carrera y dejar al navegador leyendo un blob: URL que ya no apunta a nada, y ahí la descarga
   // se cae en silencio. Con este margen le da tiempo de sobra a que ya haya alcanzado a leerlo.
   window.setTimeout(() => URL.revokeObjectURL(url), 4000)
+  return { metodo: 'descarga', razonRespaldo }
 }
 
 export async function descargarElementoComoImagen(
   elemento: HTMLElement,
   nombreArchivo: string,
   alProgresar?: (mensaje: string) => void,
-): Promise<void> {
+): Promise<ResultadoCompartir> {
   const { blob } = await capturarComoPNG(elemento, alProgresar)
   const archivo = new File([blob], nombreArchivo, { type: 'image/png' })
-  await compartirOGuardarArchivo(archivo, alProgresar)
+  return compartirOGuardarArchivo(archivo, alProgresar)
 }
 
 /** Cuántos puntos (1/72 de pulgada) de margen se dejan libres alrededor del contenido en cada
@@ -396,10 +413,10 @@ export async function descargarElementoComoPDF(
   elemento: HTMLElement,
   nombreArchivo: string,
   alProgresar?: (mensaje: string) => void,
-): Promise<void> {
+): Promise<ResultadoCompartir> {
   const { blob, ancho, alto } = await capturarComoPNG(elemento, alProgresar)
   alProgresar?.('Armando PDF…')
   const pdfBlob = await crearPDFDesdeImagen(blob, ancho, alto)
   const archivo = new File([pdfBlob], nombreArchivo, { type: 'application/pdf' })
-  await compartirOGuardarArchivo(archivo, alProgresar)
+  return compartirOGuardarArchivo(archivo, alProgresar)
 }
