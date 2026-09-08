@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { descargarElementoComoImagen, precargarLibreriaDeImagen } from '../../utils/descargarImagen'
+import {
+  descargarElementoComoImagen,
+  descargarElementoComoPDF,
+  precargarLibreriaDeImagen,
+} from '../../utils/descargarImagen'
 import type { ConsolidadoTiquete, Recepcion } from '../../types/models'
 
 const BASE = import.meta.env.BASE_URL
@@ -112,8 +116,8 @@ const claseBadge =
  * solo informe) — por eso el título que se recibe en `nombreEncabezado` es el nombre del Grupo
  * Asociado, no el de un asociado individual.
  *
- * Trae su propio botón "Descargar imagen" (mismo patrón que ReporteDiarioLote.tsx) — quien lo usa
- * no necesita armar ese botón aparte.
+ * Trae sus propios botones "Descargar imagen" y "Descargar / Compartir PDF" (mismo patrón que
+ * ReporteDiarioLote.tsx) — quien lo usa no necesita armar esos botones aparte.
  */
 export function ReporteSemanalAsociado({
   nombreEncabezado,
@@ -136,6 +140,9 @@ export function ReporteSemanalAsociado({
   const [descargando, setDescargando] = useState(false)
   const [error, setError] = useState<string>()
   const [descargada, setDescargada] = useState(false)
+  const [generandoPDF, setGenerandoPDF] = useState(false)
+  const [errorPDF, setErrorPDF] = useState<string>()
+  const [pdfListo, setPdfListo] = useState(false)
 
   // Precarga dom-to-image-more apenas se muestra este reporte en pantalla — ver el comentario de
   // precargarLibreriaDeImagen() en descargarImagen.ts.
@@ -220,6 +227,26 @@ export function ReporteSemanalAsociado({
     }
   }
 
+  // Antes este botón decía "Imprimir / Descargar PDF" y abría el diálogo de impresión del
+  // navegador (window.print()) — a pedido de Nathalia, ahora genera el PDF directamente y, en el
+  // celular, abre de una la hoja de "Compartir" (donde aparece WhatsApp) en vez de pasar primero
+  // por la vista previa de impresión.
+  async function compartirPDF() {
+    if (!contenedorRef.current) return
+    setGenerandoPDF(true)
+    setErrorPDF(undefined)
+    setPdfListo(false)
+    try {
+      const nombreArchivo = nombreEncabezado.trim().toLowerCase().replace(/\s+/g, '-')
+      await descargarElementoComoPDF(contenedorRef.current, `informe-semanal-${nombreArchivo}-semana${numeroSemana}.pdf`)
+      setPdfListo(true)
+    } catch (err) {
+      setErrorPDF(`No se pudo generar el PDF: ${(err as Error).message}`)
+    } finally {
+      setGenerandoPDF(false)
+    }
+  }
+
   const semaforoActual = semaforo(totales.porcentaje)
 
   return (
@@ -231,7 +258,7 @@ export function ReporteSemanalAsociado({
     // página en blanco y arrancando el informe de verdad en la página 2 (confirmado con el PDF que
     // envió Nathalia: "Página 1 de 4", en blanco, con el informe empezando en la página 2 de 4).
     <div>
-      <div className="mb-2 flex items-center justify-end gap-3 print:hidden">
+      <div className="mb-2 flex flex-wrap items-center justify-end gap-3 print:hidden">
         {error && <p className="text-xs text-brand-red">{error}</p>}
         {descargada && !error && <p className="text-xs font-medium text-emerald-600">Imagen descargada ✓</p>}
         <button
@@ -241,6 +268,16 @@ export function ReporteSemanalAsociado({
           className="rounded-md border border-brand-navy px-3 py-1.5 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint disabled:opacity-50"
         >
           {descargando ? 'Generando imagen…' : 'Descargar imagen'}
+        </button>
+        {errorPDF && <p className="text-xs text-brand-red">{errorPDF}</p>}
+        {pdfListo && !errorPDF && <p className="text-xs font-medium text-emerald-600">PDF listo ✓</p>}
+        <button
+          type="button"
+          onClick={() => void compartirPDF()}
+          disabled={generandoPDF}
+          className="rounded-md border border-brand-navy px-3 py-1.5 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint disabled:opacity-50"
+        >
+          {generandoPDF ? 'Generando PDF…' : 'Descargar / Compartir PDF'}
         </button>
       </div>
 
