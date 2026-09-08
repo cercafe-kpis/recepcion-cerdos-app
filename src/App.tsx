@@ -169,6 +169,23 @@ function PieDeApp() {
   return (
     <footer className="border-t border-slate-200 py-3 text-center text-xs text-slate-400 print:hidden">
       Desarrollado por Gestión Técnica Especializada
+      <br />
+      <span className="text-[10px]">Versión: {formatearFechaBuild(__FECHA_BUILD__)}</span>
     </footer>
   )
+}
+
+/** Convierte la fecha ISO del build (__FECHA_BUILD__, inyectada en vite.config.ts) a algo
+ * legible como "8 sep 2026, 2:15 p. m." — sirve para comprobar a simple vista, comparando con la
+ * hora en que se corrió el despliegue en GitHub Actions, si un celular ya tiene la versión más
+ * reciente de la app o todavía no. */
+function formatearFechaBuild(fechaIso: string): string {
+  try {
+    return new Date(fechaIso).toLocaleString('es-CO', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    })
+  } catch {
+    return fechaIso
+  }
 }
