@@ -1,6 +1,9 @@
+import { jsPDF } from 'jspdf'
+
 /**
- * Descarga (o comparte, en el celular) un elemento del DOM como imagen PNG — usado por el botón
- * "Descargar imagen" de ReporteDiarioLote.tsx y ReporteSemanalAsociado.tsx.
+ * Descarga (o comparte, en el celular) un elemento del DOM como imagen PNG o como PDF — usado por
+ * los botones "Descargar imagen" y "Descargar / Compartir PDF" de ReporteDiarioLote.tsx y
+ * ReporteSemanalAsociado.tsx.
  *
  * Usa dom-to-image-more en vez de html2canvas-pro (que se usaba antes): html2canvas-pro vuelve a
  * DIBUJAR a mano cada texto/borde/imagen sobre un <canvas> reinterpretando el CSS él mismo, y esa
@@ -179,21 +182,43 @@ function esMovilDeVerdad(): boolean {
   return /Android|iPhone|iPad|iPod|Mobi/i.test(navigator.userAgent)
 }
 
-export async function descargarElementoComoImagen(elemento: HTMLElement, nombreArchivo: string): Promise<void> {
+/**
+ * Todo lo que hace falta para llegar a un PNG del elemento: cargar la librería, armar el clon de
+ * ancho fijo, esperar a que esté listo y dibujarlo — usado tanto por descargarElementoComoImagen
+ * (que entrega ese PNG tal cual) como por descargarElementoComoPDF (que lo mete dentro de un PDF).
+ * Devuelve también el ancho/alto CSS del clon (NO el tamaño en píxeles reales de la imagen, que
+ * depende del pixelRatio) — descargarElementoComoPDF los necesita para que el informe quede con
+ * las proporciones correctas dentro de la página del PDF.
+ *
+ * alProgresar (opcional): se llama en cada paso del proceso con un texto corto describiéndolo —
+ * ReporteDiarioLote.tsx / ReporteSemanalAsociado.tsx lo usan para mostrar, en el propio botón, en
+ * cuál paso va en vez de un genérico "Generando…" fijo. Esto no arregla nada por sí solo, pero si
+ * alguna vez el proceso se vuelve a quedar pegado, el último paso que alcanzó a mostrarse dice
+ * exactamente EN CUÁL de los pasos se atoró (cargando la librería, esperando fuentes/imágenes,
+ * dibujando, o guardando) — información que antes no había forma de ver sin abrir las
+ * herramientas de desarrollador del navegador.
+ */
+async function capturarComoPNG(
+  elemento: HTMLElement,
+  alProgresar?: (mensaje: string) => void,
+): Promise<{ blob: Blob; ancho: number; alto: number }> {
+  alProgresar?.('Cargando…')
   const { default: domtoimage } = await cargarLibreria()
 
+  alProgresar?.('Preparando…')
   const { clon, contenedor } = crearClonAnchoFijo(elemento)
 
-  let blob: Blob
   try {
-    blob = await conLimiteDeTiempo(
+    return await conLimiteDeTiempo(
       (async () => {
+        alProgresar?.('Esperando fuentes e imágenes…')
         await esperarListoParaCapturar(clon)
 
         const ancho = clon.getBoundingClientRect().width || ANCHO_CAPTURA
         const alto = clon.scrollHeight || clon.getBoundingClientRect().height || 800
 
-        return domtoimage.toBlob(clon, {
+        alProgresar?.('Dibujando imagen…')
+        const blob = await domtoimage.toBlob(clon, {
           bgcolor: '#ffffff',
           pixelRatio: calcularNitidez(ancho, alto),
           cacheBust: true,
@@ -208,25 +233,33 @@ export async function descargarElementoComoImagen(elemento: HTMLElement, nombreA
           disableEmbedFonts: true,
           httpTimeout: 8000,
         })
+        return { blob, ancho, alto }
       })(),
       LIMITE_TIEMPO_MS,
-      'La generación de la imagen tardó demasiado y se canceló. Vuelve a intentarlo — si sigue sin funcionar, usa el enlace "Imprimir / Descargar PDF" como alternativa.',
+      'La generación tardó demasiado y se canceló. Vuelve a intentarlo.',
     )
   } finally {
     document.body.removeChild(contenedor)
   }
+}
 
-  const archivo = new File([blob], nombreArchivo, { type: 'image/png' })
+/**
+ * Comparte (en el celular) o descarga (en computador) un archivo ya generado — el mismo paso
+ * final que necesitan tanto la imagen PNG como el PDF, así que vive en un solo lugar en vez de
+ * repetirse en las dos funciones de abajo.
+ */
+async function compartirOGuardarArchivo(archivo: File, alProgresar?: (mensaje: string) => void): Promise<void> {
+  alProgresar?.('Guardando…')
 
   // esMovilDeVerdad(): Windows (Edge/Chrome) también sabe responder navigator.canShare() con
   // archivos que sí — no es solo cosa de celular como se pensaba al escribir esto la primera vez.
   // Sin este chequeo, en computador se abría el panel nativo de "Compartir" de Windows (pensado
   // para enviar a otro dispositivo o app) en vez de simplemente guardar el archivo — algo que no
-  // se parece en nada al botón "Descargar imagen" que la persona espera, y que si no se completa
-  // (o se completa eligiendo algo que no guarda nada localmente) se sentía exactamente como "hace
-  // el intento pero no descarga nada". En computador YA funciona bien el <a download> de abajo
-  // (funcionaba desde antes de agregar esto), así que la Web Share API se reserva para cuando de
-  // verdad hace falta: un celular, donde <a download> sí se ignora.
+  // se parece en nada al botón que la persona espera, y que si no se completa (o se completa
+  // eligiendo algo que no guarda nada localmente) se sentía exactamente como "hace el intento
+  // pero no descarga nada". En computador YA funciona bien el <a download> de abajo (funcionaba
+  // desde antes de agregar esto), así que la Web Share API se reserva para cuando de verdad hace
+  // falta: un celular, donde <a download> sí se ignora.
   if (esMovilDeVerdad() && typeof navigator.canShare === 'function' && navigator.canShare({ files: [archivo] })) {
     try {
       await navigator.share({ files: [archivo] })
@@ -239,9 +272,9 @@ export async function descargarElementoComoImagen(elemento: HTMLElement, nombreA
     }
   }
 
-  const url = URL.createObjectURL(blob)
+  const url = URL.createObjectURL(archivo)
   const enlace = document.createElement('a')
-  enlace.download = nombreArchivo
+  enlace.download = archivo.name
   enlace.href = url
   // El <a> se agrega al documento (aunque sea invisible) antes del clic, y se quita apenas
   // después: en varios navegadores, un clic hecho por código sobre un <a> que nunca estuvo metido
@@ -256,4 +289,106 @@ export async function descargarElementoComoImagen(elemento: HTMLElement, nombreA
   // carrera y dejar al navegador leyendo un blob: URL que ya no apunta a nada, y ahí la descarga
   // se cae en silencio. Con este margen le da tiempo de sobra a que ya haya alcanzado a leerlo.
   window.setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+
+export async function descargarElementoComoImagen(
+  elemento: HTMLElement,
+  nombreArchivo: string,
+  alProgresar?: (mensaje: string) => void,
+): Promise<void> {
+  const { blob } = await capturarComoPNG(elemento, alProgresar)
+  const archivo = new File([blob], nombreArchivo, { type: 'image/png' })
+  await compartirOGuardarArchivo(archivo, alProgresar)
+}
+
+/** Cuántos puntos (1/72 de pulgada) de margen se dejan libres alrededor del contenido en cada
+ * página del PDF — para que no quede pegado al borde. */
+const MARGEN_PDF_PT = 24
+
+/** Cuántas páginas como máximo puede tener el PDF generado — un tope de seguridad para nunca
+ * generar un PDF descontrolado si algo saliera mal calculando el alto del informe (mismo espíritu
+ * que AREA_MAXIMA_PX más arriba). Un informe semanal normal no debería pasar de unas pocas
+ * páginas. */
+const MAXIMO_PAGINAS_PDF = 40
+
+/** Calidad del JPEG (0 a 1) con el que se mete el informe dentro del PDF — ver el comentario de
+ * convertirAJPEG() sobre por qué es imprescindible convertir a JPEG antes, y no meter el PNG tal
+ * cual. 0.85 es un punto medio de sobra para texto y tablas: se nota MUCHO menos que la
+ * diferencia de peso del archivo. */
+const CALIDAD_JPEG_PDF = 0.85
+
+/**
+ * Convierte el PNG ya capturado a JPEG antes de meterlo en el PDF. Esto no es una optimización
+ * menor: se probó primero metiendo el PNG directo (con jsPDF addImage(..., 'PNG', ...)) y el PDF
+ * de un informe semanal normal salía pesando DECENAS DE MEGABYTES — jsPDF, con imágenes PNG, las
+ * guarda adentro del PDF como mapa de bits SIN comprimir (cada píxel tal cual, sin aprovechar que
+ * la imagen es en su mayoría fondo blanco), así que el peso final termina siendo básicamente
+ * ancho × alto × 3 bytes por píxel. Con JPEG en cambio jsPDF sí aprovecha la compresión que ya
+ * trae el propio archivo JPEG y lo mete casi tal cual — un informe de prueba de varias páginas
+ * pasó de más de 40 MB a apenas un poco más de 100 KB. Un PDF de decenas de MB, además de lento
+ * de generar en un celular, se puede quedar pegado o fallar al intentar compartirlo por WhatsApp.
+ * JPEG no admite fondos transparentes, pero el informe siempre se captura sobre fondo blanco
+ * (bgcolor: '#ffffff' en capturarComoPNG), así que no hay nada que se pierda visualmente.
+ */
+async function convertirAJPEG(blobPNG: Blob): Promise<string> {
+  const bitmap = await createImageBitmap(blobPNG)
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('El navegador no pudo preparar el PDF (canvas no disponible).')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(bitmap, 0, 0)
+    return canvas.toDataURL('image/jpeg', CALIDAD_JPEG_PDF)
+  } finally {
+    bitmap.close()
+  }
+}
+
+/**
+ * Arma un PDF tamaño carta con la imagen ya capturada, repartida en tantas páginas como haga
+ * falta — jsPDF no reparte solo una imagen alta en varias páginas, así que se dibuja la MISMA
+ * imagen completa una vez por página, corriéndola hacia arriba cada vez (posicionY más negativo)
+ * para que cada página muestre el siguiente pedazo; lo que queda fuera del alto de esa página
+ * simplemente no se ve, igual que si se hubiera recortado. El alias ('informe') le permite a
+ * jsPDF reconocer que es la MISMA imagen en cada página, en vez de tratarla como una distinta
+ * cada vez.
+ */
+async function crearPDFDesdeImagen(blob: Blob, anchoCSS: number, altoCSS: number): Promise<Blob> {
+  const dataUrlJPEG = await convertirAJPEG(blob)
+
+  const pdf = new jsPDF({ unit: 'pt', format: 'letter' })
+  const anchoPagina = pdf.internal.pageSize.getWidth() - MARGEN_PDF_PT * 2
+  const altoPagina = pdf.internal.pageSize.getHeight() - MARGEN_PDF_PT * 2
+  const altoImagen = (altoCSS / anchoCSS) * anchoPagina
+  const ALIAS_IMAGEN = 'informe'
+
+  let posicionY = MARGEN_PDF_PT
+  let paginas = 1
+  pdf.addImage(dataUrlJPEG, 'JPEG', MARGEN_PDF_PT, posicionY, anchoPagina, altoImagen, ALIAS_IMAGEN)
+
+  let restante = altoImagen - altoPagina
+  while (restante > 1 && paginas < MAXIMO_PAGINAS_PDF) {
+    posicionY -= altoPagina
+    pdf.addPage()
+    pdf.addImage(dataUrlJPEG, 'JPEG', MARGEN_PDF_PT, posicionY, anchoPagina, altoImagen, ALIAS_IMAGEN)
+    restante -= altoPagina
+    paginas += 1
+  }
+
+  return pdf.output('blob')
+}
+
+export async function descargarElementoComoPDF(
+  elemento: HTMLElement,
+  nombreArchivo: string,
+  alProgresar?: (mensaje: string) => void,
+): Promise<void> {
+  const { blob, ancho, alto } = await capturarComoPNG(elemento, alProgresar)
+  alProgresar?.('Armando PDF…')
+  const pdfBlob = await crearPDFDesdeImagen(blob, ancho, alto)
+  const archivo = new File([pdfBlob], nombreArchivo, { type: 'application/pdf' })
+  await compartirOGuardarArchivo(archivo, alProgresar)
 }
