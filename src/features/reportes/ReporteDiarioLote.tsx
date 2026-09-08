@@ -82,9 +82,11 @@ export function ReporteDiarioLote({
   const [descargando, setDescargando] = useState(false)
   const [error, setError] = useState<string>()
   const [descargada, setDescargada] = useState(false)
+  const [avisoImagen, setAvisoImagen] = useState<string>()
   const [generandoPDF, setGenerandoPDF] = useState(false)
   const [errorPDF, setErrorPDF] = useState<string>()
   const [pdfListo, setPdfListo] = useState(false)
+  const [avisoPDF, setAvisoPDF] = useState<string>()
 
   const fortuitoTransporte = agruparPorDestino(tiquetes, 'Muerto en Transporte')
   const fortuitoDesembarque = agruparPorDestino(tiquetes, 'Muerto en Desembarque')
@@ -104,12 +106,16 @@ export function ReporteDiarioLote({
     setDescargando(true)
     setError(undefined)
     setDescargada(false)
+    setAvisoImagen(undefined)
     try {
-      await descargarElementoComoImagen(
+      const resultado = await descargarElementoComoImagen(
         contenedorRef.current,
         `reporte-llegada-${recepcion.Consecutivo || 'lote'}.png`,
       )
       setDescargada(true)
+      // Ver el comentario de ResultadoCompartir en descargarImagen.ts — aviso temporal mientras se
+      // diagnostica el problema del enlace "blob:..." de más en WhatsApp.
+      if (resultado.metodo === 'descarga' && resultado.razonRespaldo) setAvisoImagen(resultado.razonRespaldo)
     } catch (err) {
       setError(`No se pudo generar la imagen: ${(err as Error).message}`)
     } finally {
@@ -129,9 +135,16 @@ export function ReporteDiarioLote({
     setGenerandoPDF(true)
     setErrorPDF(undefined)
     setPdfListo(false)
+    setAvisoPDF(undefined)
     try {
-      await descargarElementoComoPDF(contenedorRef.current, `reporte-llegada-${recepcion.Consecutivo || 'lote'}.pdf`)
+      const resultado = await descargarElementoComoPDF(
+        contenedorRef.current,
+        `reporte-llegada-${recepcion.Consecutivo || 'lote'}.pdf`,
+      )
       setPdfListo(true)
+      // Ver el comentario de ResultadoCompartir en descargarImagen.ts — aviso temporal mientras se
+      // diagnostica el problema del enlace "blob:..." de más en WhatsApp.
+      if (resultado.metodo === 'descarga' && resultado.razonRespaldo) setAvisoPDF(resultado.razonRespaldo)
     } catch (err) {
       setErrorPDF(`No se pudo generar el PDF: ${(err as Error).message}`)
     } finally {
@@ -163,6 +176,17 @@ export function ReporteDiarioLote({
           {generandoPDF ? 'Generando PDF…' : 'Descargar / Compartir PDF'}
         </button>
       </div>
+      {/* Aviso TEMPORAL (quitar cuando ya no haga falta) — ver el comentario de ResultadoCompartir
+          en descargarImagen.ts: mientras no se sepa por qué en algunos celulares el PDF/imagen no
+          se comparte directo, este texto muestra el motivo exacto que dio el navegador, para
+          poder reportarlo tal cual en vez de "sigue apareciendo el enlace". */}
+      {(avisoImagen || avisoPDF) && (
+        <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-800 print:hidden">
+          <p className="font-semibold">Diagnóstico temporal — copia y envía este texto:</p>
+          {avisoImagen && <p>Imagen: {avisoImagen}</p>}
+          {avisoPDF && <p>PDF: {avisoPDF}</p>}
+        </div>
+      )}
 
       <section
         ref={contenedorRef}
