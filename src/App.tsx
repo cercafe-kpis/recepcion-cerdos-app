@@ -107,7 +107,14 @@ function AppAutenticada() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50">
+    // print:min-h-0: min-h-screen (min-height: 100vh) reserva de entrada el alto completo de la
+    // pantalla del dispositivo para este contenedor — en computador no se nota casi, pero en
+    // celular esa altura completa puede ser bastante mayor que el reporte que se está imprimiendo,
+    // y el motor de impresión del navegador reserva una PRIMERA PÁGINA para ese espacio vacío
+    // antes de empezar a mostrar el contenido real (que entonces aparece desde la página 2). Con
+    // print:min-h-0 esa altura mínima se apaga solo al imprimir/exportar a PDF — en pantalla
+    // (sin imprimir) sigue ocupando toda la pantalla como siempre.
+    <div className="flex min-h-screen flex-col bg-slate-50 print:min-h-0">
       <Navbar usuario={usuario} />
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">
         <Routes>
