@@ -136,7 +136,6 @@ export function ReporteSemanalAsociado({
   const [descargando, setDescargando] = useState(false)
   const [error, setError] = useState<string>()
   const [descargada, setDescargada] = useState(false)
-  const [progreso, setProgreso] = useState<string>()
 
   // Precarga dom-to-image-more apenas se muestra este reporte en pantalla — ver el comentario de
   // precargarLibreriaDeImagen() en descargarImagen.ts.
@@ -212,14 +211,12 @@ export function ReporteSemanalAsociado({
       await descargarElementoComoImagen(
         contenedorRef.current,
         `informe-semanal-${nombreArchivo}-semana${numeroSemana}.png`,
-        setProgreso,
       )
       setDescargada(true)
     } catch (err) {
       setError(`No se pudo generar la imagen: ${(err as Error).message}`)
     } finally {
       setDescargando(false)
-      setProgreso(undefined)
     }
   }
 
@@ -243,7 +240,7 @@ export function ReporteSemanalAsociado({
           disabled={descargando}
           className="rounded-md border border-brand-navy px-3 py-1.5 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint disabled:opacity-50"
         >
-          {descargando ? (progreso ?? 'Generando imagen…') : 'Descargar imagen'}
+          {descargando ? 'Generando imagen…' : 'Descargar imagen'}
         </button>
       </div>
 
