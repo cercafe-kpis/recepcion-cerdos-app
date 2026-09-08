@@ -303,6 +303,18 @@ async function compartirOGuardarArchivo(
   const enlace = document.createElement('a')
   enlace.download = archivo.name
   enlace.href = url
+  // target="_blank" (con rel="noopener noreferrer" por seguridad, para que esa pestaña nueva no
+  // pueda tocar esta): con las capturas que mandó Nathalia se pudo ver POR FIN qué pasa de verdad
+  // en su iPhone cuando el PDF cae a este método de respaldo — Safari, como no respeta el
+  // download de un blob: para un PDF, en vez de descargarlo NAVEGA la pestaña actual para
+  // mostrarlo en su propio visor. Eso significa que la pestaña donde vive esta app (React y todo)
+  // se reemplaza por el PDF antes de que alcance a pintarse el aviso de diagnóstico (ver
+  // ResultadoCompartir) — por eso nunca se veía el cuadro amarillo, aunque sí se estaba
+  // calculando bien. Con target="_blank" esa navegación ocurre en una pestaña NUEVA, dejando esta
+  // pestaña (con la app y el aviso) intacta — así si esto se vuelve a activar, el diagnóstico por
+  // fin se va a poder ver y copiar.
+  enlace.target = '_blank'
+  enlace.rel = 'noopener noreferrer'
   // El <a> se agrega al documento (aunque sea invisible) antes del clic, y se quita apenas
   // después: en varios navegadores, un clic hecho por código sobre un <a> que nunca estuvo metido
   // en la página no dispara la descarga de forma confiable — necesita estar "montado" para que
