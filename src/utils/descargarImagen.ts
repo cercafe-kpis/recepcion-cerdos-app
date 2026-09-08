@@ -258,8 +258,13 @@ export type ResultadoCompartir = { metodo: 'compartir' | 'descarga'; razonRespal
  * Comparte (en el celular) o descarga (en computador) un archivo ya generado — el mismo paso
  * final que necesitan tanto la imagen PNG como el PDF, así que vive en un solo lugar en vez de
  * repetirse en las dos funciones de abajo.
+ *
+ * Exportada (antes era una función interna nada más) porque ReporteDiarioLote.tsx /
+ * ReporteSemanalAsociado.tsx ahora la llaman DIRECTO para el PDF, en su propio botón "Compartir
+ * PDF" separado de "Generar PDF" — ver el comentario grande en generarArchivoPDF() más abajo sobre
+ * por qué armar el PDF y compartirlo ya no pueden ir en el mismo clic.
  */
-async function compartirOGuardarArchivo(
+export async function compartirOGuardarArchivo(
   archivo: File,
   alProgresar?: (mensaje: string) => void,
 ): Promise<ResultadoCompartir> {
@@ -429,14 +434,30 @@ async function crearPDFDesdeImagen(blob: Blob, anchoCSS: number, altoCSS: number
   return pdf.output('blob')
 }
 
-export async function descargarElementoComoPDF(
+/**
+ * Arma el PDF y devuelve el archivo YA LISTO — sin compartirlo ni descargarlo todavía (eso lo hace
+ * compartirOGuardarArchivo, en un paso APARTE — ver el botón "Compartir / Descargar PDF" en
+ * ReporteDiarioLote.tsx / ReporteSemanalAsociado.tsx, que solo aparece una vez este archivo ya está
+ * listo). Antes las dos cosas iban juntas en una sola función (descargarElementoComoPDF) llamada
+ * de un solo clic — y ESO, según lo que se pudo confirmar con las pruebas de Nathalia en su
+ * iPhone, era la causa real de que el PDF (a diferencia de la imagen PNG) nunca se compartiera
+ * directo: armar el PDF (capturar + convertir a JPEG + montar las páginas con jsPDF) tarda bastante
+ * más que capturar la imagen sola, y Safari en iPhone exige que navigator.share() se llame MUY
+ * cerca del toque de la persona en el botón — si pasa demasiado tiempo de por medio (así sea todo
+ * async, sin que la persona haga nada más), Safari deja de reconocer que el toque original todavía
+ * "cuenta", y share() falla en silencio (sin avisar nada raro, solo cae al método de respaldo, que
+ * es el que termina soltando el enlace "blob:..." de más en WhatsApp). Separando "armar" (que sí
+ * puede tardar) de "compartir" (que ahora se llama de INMEDIATO en el clic siguiente, sin ningún
+ * await de por medio antes de navigator.share) cada toque de "Compartir / Descargar PDF" cuenta
+ * como un gesto nuevo y directo, así el PDF ya esté armado desde antes.
+ */
+export async function generarArchivoPDF(
   elemento: HTMLElement,
   nombreArchivo: string,
   alProgresar?: (mensaje: string) => void,
-): Promise<ResultadoCompartir> {
+): Promise<File> {
   const { blob, ancho, alto } = await capturarComoPNG(elemento, alProgresar)
   alProgresar?.('Armando PDF…')
   const pdfBlob = await crearPDFDesdeImagen(blob, ancho, alto)
-  const archivo = new File([pdfBlob], nombreArchivo, { type: 'application/pdf' })
-  return compartirOGuardarArchivo(archivo, alProgresar)
+  return new File([pdfBlob], nombreArchivo, { type: 'application/pdf' })
 }
