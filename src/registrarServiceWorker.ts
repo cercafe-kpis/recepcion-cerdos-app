@@ -69,6 +69,14 @@ export function registrarServiceWorker() {
       // la pantalla de inicio), volver a ella desde otra app no siempre dispara
       // visibilitychange de forma confiable — 'focus' es un segundo aviso que cubre esos casos.
       window.addEventListener('focus', revisarSiEstaVisible)
+      // 'pageshow' es un tercer aviso, pensado sobre todo para iPhone: cuando iOS "congela" la
+      // app en vez de cerrarla del todo (para ahorrar batería) y la persona vuelve a ella, a
+      // veces ni visibilitychange ni focus se disparan — pero el navegador restaura la página
+      // con un evento pageshow (con persisted: true si viene de ese estado congelado). Revisar
+      // ahí también, sin condición, es la forma recomendada de cubrir ese caso en iOS.
+      window.addEventListener('pageshow', () => {
+        void registration.update()
+      })
     },
   })
 }
