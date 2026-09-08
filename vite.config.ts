@@ -27,6 +27,24 @@ export default defineConfig({
         // Borra del caché del navegador las versiones de archivos de despliegues anteriores en
         // cuanto el service worker nuevo queda activo, para que no se vayan acumulando.
         cleanupOutdatedCaches: true,
+        // *** Esta era la causa real de que en el celular una actualización publicada nunca
+        // "llegara" a la app, ni con el botón "Actualizar ahora" ni sola ***
+        // Con registerType: 'autoUpdate', vite-plugin-pwa normalmente activa por su cuenta estas
+        // dos opciones de Workbox — pero SOLO cuando también se usa su registro automático
+        // (injectRegister: 'auto'). Como este proyecto registra el service worker a mano
+        // (injectRegister: false, ver el comentario de arriba y src/registrarServiceWorker.ts,
+        // necesario para poder revisar solo cada cierto tiempo y al volver a la pestaña), ese
+        // encendido automático NUNCA se activaba, y el archivo del service worker se generaba
+        // SIN skipWaiting/clientsClaim. Sin skipWaiting, un service worker nuevo se instala pero
+        // se queda "esperando" sin activarse nunca (el navegador solo lo activa solo cuando se
+        // cierran TODAS las pestañas/instancias abiertas de la app — algo que casi nunca pasa de
+        // verdad en un celular, porque la app queda "en segundo plano" en vez de cerrarse del
+        // todo). Por eso nunca aparecía el aviso "Actualizar ahora": el service worker nuevo
+        // jamás llegaba a activarse para poder avisar. Con estas dos líneas, en cuanto el service
+        // worker nuevo termina de descargarse se activa solo (skipWaiting) y toma control de
+        // inmediato de la app ya abierta (clientsClaim) — ahí sí se dispara el aviso.
+        skipWaiting: true,
+        clientsClaim: true,
       },
       manifest: {
         name: 'Recepción de Cerdos — Cercafe',
