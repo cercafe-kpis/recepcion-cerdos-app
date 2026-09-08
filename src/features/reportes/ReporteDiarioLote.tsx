@@ -98,7 +98,10 @@ export function ReporteDiarioLote({
     setError(undefined)
     setDescargada(false)
     try {
-      await descargarElementoComoImagen(contenedorRef.current, `reporte-llegada-${recepcion.Consecutivo || 'lote'}.png`)
+      await descargarElementoComoImagen(
+        contenedorRef.current,
+        `reporte-llegada-${recepcion.Consecutivo || 'lote'}.png`,
+      )
       setDescargada(true)
     } catch (err) {
       setError(`No se pudo generar la imagen: ${(err as Error).message}`)
