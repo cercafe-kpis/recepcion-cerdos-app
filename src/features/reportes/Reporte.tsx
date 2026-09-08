@@ -106,9 +106,6 @@ function ReporteDiario({ mapaVehiculos }: { mapaVehiculos: Map<string, { Title: 
   const [generado, setGenerado] = useState(false)
   const [recepciones, setRecepciones] = useState<Recepcion[]>([])
   const [tiquetesPorRecepcion, setTiquetesPorRecepcion] = useState<Record<string, ConsolidadoTiquete[]>>({})
-  // Cuando no es undefined, todas las tarjetas EXCEPTO esta se ocultan al imprimir — así el botón
-  // "Imprimir" de una tarjeta imprime solo ese lote y no el día completo. Ver el botón más abajo.
-  const [imprimiendoSoloId, setImprimiendoSoloId] = useState<string>()
 
   const asociados = useLiveQuery(() => db.asociados.toArray(), []) ?? []
   const granjas = useLiveQuery(() => db.granjas.toArray(), []) ?? []
@@ -137,15 +134,6 @@ function ReporteDiario({ mapaVehiculos }: { mapaVehiculos: Map<string, { Title: 
     } finally {
       setCargando(false)
     }
-  }
-
-  function imprimirSolo(id: string) {
-    setImprimiendoSoloId(id)
-    // Espera a que se aplique la clase print:hidden a las demás tarjetas antes de abrir el diálogo.
-    requestAnimationFrame(() => {
-      window.print()
-      setImprimiendoSoloId(undefined)
-    })
   }
 
   return (
@@ -179,27 +167,14 @@ function ReporteDiario({ mapaVehiculos }: { mapaVehiculos: Map<string, { Title: 
           ) : (
             <div className="mt-4 space-y-4">
               {recepciones.map((r) => (
-                <div
+                <ReporteDiarioLote
                   key={r.id}
-                  className={clsx(imprimiendoSoloId && imprimiendoSoloId !== r.id && 'print:hidden')}
-                >
-                  <div className="mb-1 flex justify-end print:hidden">
-                    <button
-                      type="button"
-                      onClick={() => imprimirSolo(r.id)}
-                      className="text-xs font-medium text-brand-navy hover:underline"
-                    >
-                      Imprimir / Descargar PDF
-                    </button>
-                  </div>
-                  <ReporteDiarioLote
-                    recepcion={r}
-                    asociadoNombre={mapaAsociados.get(r.AsociadoId)?.Title ?? '—'}
-                    granjaNombre={mapaGranjas.get(r.GranjaId)?.Title ?? '—'}
-                    placa={mapaVehiculos.get(r.PlacaVehiculoId)?.Title ?? '—'}
-                    tiquetes={r.spId ? (tiquetesPorRecepcion[r.spId] ?? []) : []}
-                  />
-                </div>
+                  recepcion={r}
+                  asociadoNombre={mapaAsociados.get(r.AsociadoId)?.Title ?? '—'}
+                  granjaNombre={mapaGranjas.get(r.GranjaId)?.Title ?? '—'}
+                  placa={mapaVehiculos.get(r.PlacaVehiculoId)?.Title ?? '—'}
+                  tiquetes={r.spId ? (tiquetesPorRecepcion[r.spId] ?? []) : []}
+                />
               ))}
             </div>
           )}
@@ -300,21 +275,14 @@ function ReporteSemanal({
 
       {generado && (
         <>
-          <div className="mt-4 flex items-center justify-between print:hidden">
-            <p className="text-sm text-slate-500">
-              {recepcionesDelGrupo.length} recepci{recepcionesDelGrupo.length === 1 ? 'ón' : 'ones'} de {nombreGrupo}{' '}
-              entre {desde} y {hasta}
-            </p>
-            {recepcionesDelGrupo.length > 0 && (
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="text-xs font-medium text-brand-navy hover:underline"
-              >
-                Imprimir / Descargar PDF
-              </button>
-            )}
-          </div>
+          {/* Antes había aquí un botón "Imprimir / Descargar PDF" con window.print() — ahora ese
+              botón vive dentro de ReporteSemanalAsociado.tsx (junto a "Descargar imagen"), porque
+              genera el PDF a partir del contenido real del informe en vez de abrir el diálogo de
+              impresión del navegador. */}
+          <p className="mt-4 text-sm text-slate-500 print:hidden">
+            {recepcionesDelGrupo.length} recepci{recepcionesDelGrupo.length === 1 ? 'ón' : 'ones'} de {nombreGrupo}{' '}
+            entre {desde} y {hasta}
+          </p>
 
           {recepcionesDelGrupo.length === 0 ? (
             <p className="mt-4 text-sm text-slate-500">Ese grupo no tuvo recepciones en ese rango de fechas.</p>
