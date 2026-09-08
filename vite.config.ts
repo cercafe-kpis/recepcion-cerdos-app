@@ -8,6 +8,13 @@ import { VitePWA } from 'vite-plugin-pwa'
 // con la ruta publicada — igual que VITE_AAD_REDIRECT_URI en .env.example.
 export default defineConfig({
   base: '/recepcion-cerdos-app/',
+  // Sello de "a qué hora se generó este build", visible en el pie de página (App.tsx) — sirve
+  // para comprobar a simple vista, desde el celular, si un despliegue ya llegó o todavía no
+  // (compara la hora que ves en la app con la hora en que se corrió el despliegue en GitHub
+  // Actions), en vez de adivinar por si aparece o no el aviso "Actualizar ahora".
+  define: {
+    __FECHA_BUILD__: JSON.stringify(new Date().toISOString()),
+  },
   plugins: [
     react(),
     tailwindcss(),
