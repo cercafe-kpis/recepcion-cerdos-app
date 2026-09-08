@@ -5,7 +5,7 @@ import { registerSW } from 'virtual:pwa-register'
  * pestaña sigue abierta — sin esto, con registerType: 'autoUpdate' igual se instala sola la
  * versión nueva, pero solo la próxima vez que el navegador decida revisar por su cuenta (que en
  * el celular puede tardar bastante, sobre todo si la app quedó abierta en segundo plano). */
-const INTERVALO_REVISION_MS = 30 * 60 * 1000
+const INTERVALO_REVISION_MS = 5 * 60 * 1000
 
 // --- Aviso de actualización disponible --------------------------------------
 // Antes, con registerType: 'autoUpdate' (vite.config.ts) y sin pasarle onNeedReload a
@@ -47,15 +47,28 @@ export function registrarServiceWorker() {
     onRegisteredSW(_swUrl, registration) {
       if (!registration) return
 
+      // Revisa una vez de una, apenas se registra el service worker — que es lo que pasa cada
+      // vez que se abre la app, incluso después de tenerla cerrada del todo. Antes esto no
+      // estaba: una apertura nueva de la app se quedaba esperando a que se cumplieran los
+      // INTERVALO_REVISION_MS de abajo o a un cambio de visibilidad, y ninguna de esas dos cosas
+      // pasa necesariamente apenas se abre la app — así que en el celular podía quedarse abierta
+      // un buen rato con la versión vieja sin que nada disparara la revisión.
+      void registration.update()
+
       window.setInterval(() => {
         void registration.update()
       }, INTERVALO_REVISION_MS)
 
-      document.addEventListener('visibilitychange', () => {
+      const revisarSiEstaVisible = () => {
         if (document.visibilityState === 'visible') {
           void registration.update()
         }
-      })
+      }
+      document.addEventListener('visibilitychange', revisarSiEstaVisible)
+      // Además de visibilitychange: en el celular, sobre todo con la app instalada (agregada a
+      // la pantalla de inicio), volver a ella desde otra app no siempre dispara
+      // visibilitychange de forma confiable — 'focus' es un segundo aviso que cubre esos casos.
+      window.addEventListener('focus', revisarSiEstaVisible)
     },
   })
 }
