@@ -136,6 +136,7 @@ export function ReporteSemanalAsociado({
   const [descargando, setDescargando] = useState(false)
   const [error, setError] = useState<string>()
   const [descargada, setDescargada] = useState(false)
+  const [progreso, setProgreso] = useState<string>()
 
   // Precarga dom-to-image-more apenas se muestra este reporte en pantalla — ver el comentario de
   // precargarLibreriaDeImagen() en descargarImagen.ts.
@@ -208,19 +209,31 @@ export function ReporteSemanalAsociado({
     setDescargada(false)
     try {
       const nombreArchivo = nombreEncabezado.trim().toLowerCase().replace(/\s+/g, '-')
-      await descargarElementoComoImagen(contenedorRef.current, `informe-semanal-${nombreArchivo}-semana${numeroSemana}.png`)
+      await descargarElementoComoImagen(
+        contenedorRef.current,
+        `informe-semanal-${nombreArchivo}-semana${numeroSemana}.png`,
+        setProgreso,
+      )
       setDescargada(true)
     } catch (err) {
       setError(`No se pudo generar la imagen: ${(err as Error).message}`)
     } finally {
       setDescargando(false)
+      setProgreso(undefined)
     }
   }
 
   const semaforoActual = semaforo(totales.porcentaje)
 
   return (
-    <div className="print:break-before-page">
+    // Antes tenía print:break-before-page — pensado para cuando hubiera varios informes seguidos
+    // en el mismo PDF, para que cada uno empezara en una página nueva. Pero en la pantalla de
+    // Reporte.tsx > pestaña "Semanal" siempre se genera UN SOLO informe a la vez (uno por Grupo
+    // Asociado elegido) — así que ese "salto de página ANTES" se aplicaba igual aunque este fuera
+    // el primer y único contenido del PDF, y el navegador lo cumplía dejando toda la primera
+    // página en blanco y arrancando el informe de verdad en la página 2 (confirmado con el PDF que
+    // envió Nathalia: "Página 1 de 4", en blanco, con el informe empezando en la página 2 de 4).
+    <div>
       <div className="mb-2 flex items-center justify-end gap-3 print:hidden">
         {error && <p className="text-xs text-brand-red">{error}</p>}
         {descargada && !error && <p className="text-xs font-medium text-emerald-600">Imagen descargada ✓</p>}
@@ -230,7 +243,7 @@ export function ReporteSemanalAsociado({
           disabled={descargando}
           className="rounded-md border border-brand-navy px-3 py-1.5 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint disabled:opacity-50"
         >
-          {descargando ? 'Generando imagen…' : 'Descargar imagen'}
+          {descargando ? (progreso ?? 'Generando imagen…') : 'Descargar imagen'}
         </button>
       </div>
 
