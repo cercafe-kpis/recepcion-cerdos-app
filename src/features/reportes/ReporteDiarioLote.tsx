@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { descargarElementoComoImagen, precargarLibreriaDeImagen } from '../../utils/descargarImagen'
+import {
+  descargarElementoComoImagen,
+  descargarElementoComoPDF,
+  precargarLibreriaDeImagen,
+} from '../../utils/descargarImagen'
 import type { ConsolidadoTiquete, Recepcion, TipoNovedad } from '../../types/models'
 
 const BASE = import.meta.env.BASE_URL
@@ -78,6 +82,9 @@ export function ReporteDiarioLote({
   const [descargando, setDescargando] = useState(false)
   const [error, setError] = useState<string>()
   const [descargada, setDescargada] = useState(false)
+  const [generandoPDF, setGenerandoPDF] = useState(false)
+  const [errorPDF, setErrorPDF] = useState<string>()
+  const [pdfListo, setPdfListo] = useState(false)
 
   const fortuitoTransporte = agruparPorDestino(tiquetes, 'Muerto en Transporte')
   const fortuitoDesembarque = agruparPorDestino(tiquetes, 'Muerto en Desembarque')
@@ -110,9 +117,31 @@ export function ReporteDiarioLote({
     }
   }
 
+  // Antes este botón decía "Imprimir / Descargar PDF" y abría el diálogo de impresión del
+  // navegador (window.print()) — a pedido de Nathalia, ahora genera el PDF directamente y, en el
+  // celular, abre de una la hoja de "Compartir" (donde aparece WhatsApp) en vez de pasar primero
+  // por la vista previa de impresión. Usa el mismo contenedorRef que "Descargar imagen" — por eso
+  // ya no hace falta ocultar las demás tarjetas del día con print:hidden como antes (imprimirSolo
+  // en Reporte.tsx): cada tarjeta genera su PDF a partir de su propio contenido, sin importar qué
+  // más haya en la pantalla.
+  async function compartirPDF() {
+    if (!contenedorRef.current) return
+    setGenerandoPDF(true)
+    setErrorPDF(undefined)
+    setPdfListo(false)
+    try {
+      await descargarElementoComoPDF(contenedorRef.current, `reporte-llegada-${recepcion.Consecutivo || 'lote'}.pdf`)
+      setPdfListo(true)
+    } catch (err) {
+      setErrorPDF(`No se pudo generar el PDF: ${(err as Error).message}`)
+    } finally {
+      setGenerandoPDF(false)
+    }
+  }
+
   return (
     <div>
-      <div className="mb-2 flex items-center justify-end gap-3 print:hidden">
+      <div className="mb-2 flex flex-wrap items-center justify-end gap-3 print:hidden">
         {error && <p className="text-xs text-brand-red">{error}</p>}
         {descargada && !error && <p className="text-xs font-medium text-emerald-600">Imagen descargada ✓</p>}
         <button
@@ -122,6 +151,16 @@ export function ReporteDiarioLote({
           className="rounded-md border border-brand-navy px-3 py-1.5 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint disabled:opacity-50"
         >
           {descargando ? 'Generando imagen…' : 'Descargar imagen'}
+        </button>
+        {errorPDF && <p className="text-xs text-brand-red">{errorPDF}</p>}
+        {pdfListo && !errorPDF && <p className="text-xs font-medium text-emerald-600">PDF listo ✓</p>}
+        <button
+          type="button"
+          onClick={() => void compartirPDF()}
+          disabled={generandoPDF}
+          className="rounded-md border border-brand-navy px-3 py-1.5 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint disabled:opacity-50"
+        >
+          {generandoPDF ? 'Generando PDF…' : 'Descargar / Compartir PDF'}
         </button>
       </div>
 
