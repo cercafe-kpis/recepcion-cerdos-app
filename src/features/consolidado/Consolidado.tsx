@@ -252,8 +252,12 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
         />
       </div>
 
-      <div className="mt-3 flex max-w-sm items-end gap-2 print:hidden">
-        <div className="flex-1">
+      {/* flex-col por defecto y solo lado a lado desde sm: el <input type="date"> nativo tiene un
+          ancho mínimo propio que en celular (con "Recepción" ya ocupando el máximo de max-w-sm)
+          empujaba al botón "Buscar" fuera de la fila y lo montaba encima del campo — apilarlos en
+          pantallas angostas lo evita de raíz, sin depender de que el input logre encogerse. */}
+      <div className="mt-3 flex max-w-sm flex-col gap-2 sm:flex-row sm:items-end print:hidden">
+        <div className="min-w-0 flex-1">
           <CampoTexto
             etiqueta="¿No aparece? Buscar por fecha"
             type="date"
@@ -364,6 +368,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                 type="button"
                 onClick={() => void actualizar()}
                 disabled={actualizando || !navigator.onLine}
+                title="Trae de nuevo desde SharePoint el Tiquete/Destino/Factura/Estado de esta Recepción — útil si otra persona, desde otro celular o computador, le acaba de cambiar algo a uno de estos tiquetes"
                 className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
               >
                 {actualizando ? 'Actualizando…' : 'Actualizar desde SharePoint'}
