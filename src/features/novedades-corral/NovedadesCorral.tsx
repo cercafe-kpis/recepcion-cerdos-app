@@ -22,6 +22,14 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
 
   const recepciones = useLiveQuery(() => db.recepciones.orderBy('CapturadaEn').reverse().toArray(), []) ?? []
 
+  // A pedido de Nathalia (2026-09-09): mismo candado que se agregó en Ubicacion.tsx — ver el
+  // comentario ahí. Antes se podía seguir agregando Novedades en Corral a una Recepción ya cerrada
+  // con "Terminar proceso" en Consolidado, sin ningún aviso.
+  const esAdmin = usuario.Rol === 'Administrador'
+  const recepcionesDisponibles = esAdmin
+    ? recepciones
+    : recepciones.filter((r) => r.EstadoLote !== 'Completo')
+
   const {
     register,
     handleSubmit,
@@ -69,9 +77,18 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
             requerido
             {...register('RecepcionId')}
             error={errors.RecepcionId?.message}
-            opciones={recepciones.map((r) => ({ value: r.id, label: r.Title }))}
+            opciones={recepcionesDisponibles.map((r) => ({
+              value: r.id,
+              label: r.EstadoLote === 'Completo' ? `${r.Title} (cerrada)` : r.Title,
+            }))}
             placeholder="Selecciona la recepción…"
           />
+          {!esAdmin && recepciones.length !== recepcionesDisponibles.length && (
+            <p className="text-xs text-slate-400">
+              Las recepciones ya cerradas (con "Terminar proceso" en Consolidado) no aparecen aquí —
+              solo un Administrador puede seguir usándolas.
+            </p>
+          )}
         </SeccionFormulario>
 
         <SeccionFormulario titulo="Observaciones en corral">
