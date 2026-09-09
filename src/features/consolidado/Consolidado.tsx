@@ -33,11 +33,19 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
 
   const recepcion = useMemo(() => recepciones.find((r) => r.id === recepcionId), [recepciones, recepcionId])
 
-  // Una vez el lote queda "Completo" (ver cerrarLotesCompletos() en
-  // syncService.ts) ya nadie más que un Administrador puede seguir editando
-  // Tiquete/Destino/Factura — a propósito de que ya se armó/envió el reporte
-  // del lote y no debería cambiar por debajo sin que un Administrador lo
-  // decida. Pedido explícito del usuario.
+  // Dos candados distintos, los dos a pedido explícito del usuario:
+  //  1) Todo el lote, una vez queda "Completo" (ver cerrarLotesCompletos() en
+  //     syncService.ts) — a propósito de que ya se armó/envió el reporte del
+  //     lote y no debería cambiar por debajo sin que un Administrador lo
+  //     decida.
+  //  2) Cada tiquete, uno por uno, apenas queda "Completo" — sin esperar a
+  //     que el LOTE entero cierre — para que un tiquete ya resuelto no se
+  //     pueda seguir tocando por accidente mientras el resto del lote sigue
+  //     abierto. Ver tiqueteYaCompletado() más abajo: para los Fortuitos
+  //     (los únicos con Factura) este candado espera también a que la
+  //     factura esté puesta, así se puede primero diligenciar Tiquete y
+  //     Destino de TODOS los animales y volver después a poner las facturas,
+  //     sin que "Completo" se adelante y bloquee esa segunda pasada.
   const loteCompleto = recepcion?.EstadoLote === 'Completo'
   const soloLectura = usuario.Rol === 'Consultor' || (loteCompleto && !esAdmin)
 
@@ -155,6 +163,13 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
             </p>
           )}
 
+          {!loteCompleto && !esAdmin && tiquetes.some(tiqueteYaCompletado) && (
+            <p className="mt-3 rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-600 print:hidden">
+              Algunos tiquetes de este lote ya quedaron completos (con su factura, si aplica) y solo un
+              Administrador puede seguir editándolos.
+            </p>
+          )}
+
           {loteCompleto && (
             <div className="mt-4">
               <button
@@ -231,14 +246,17 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {tiquetes.map((t) => (
-                    <FilaTiquete
-                      key={t.id}
-                      tiquete={t}
-                      soloLectura={soloLectura}
-                      onGuardar={(cambios) => guardarCambio(t, cambios)}
-                    />
-                  ))}
+                  {tiquetes.map((t) => {
+                    const filaSoloLectura = soloLectura || (tiqueteYaCompletado(t) && !esAdmin)
+                    return (
+                      <FilaTiquete
+                        key={t.id}
+                        tiquete={t}
+                        soloLectura={filaSoloLectura}
+                        onGuardar={(cambios) => guardarCambio(t, cambios)}
+                      />
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -258,6 +276,23 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
   )
 }
 
+/**
+ * Un tiquete queda "de verdad" completo — para efectos de bloquear su
+ * edición a los no-Administradores — cuando SharePoint ya lo marcó
+ * EstadoTiquete === 'Completo' (eso pasa solo con Tiquete + Destino, ver
+ * actualizarTiquete() en src/graph/lists.ts) Y, si es un Fortuito (el único
+ * grupo con Factura), también tiene la Factura puesta. Sin esta segunda
+ * condición, un Fortuito con Tiquete+Destino pero SIN factura todavía
+ * quedaría "Completo" y se bloquearía antes de poder escribirle la factura
+ * — justo la limitación que se pidió quitar: primero se diligencian
+ * Tiquete/Destino de todos los animales y se vuelve después a poner las
+ * facturas de los Fortuitos, sin que el candado se adelante.
+ */
+function tiqueteYaCompletado(t: ConsolidadoTiquete): boolean {
+  const esFortuito = t.GrupoNovedad === 'Fortuito'
+  return t.EstadoTiquete === 'Completo' && (!esFortuito || Boolean(t.Factura))
+}
+
 function FilaTiquete({
   tiquete,
   soloLectura,
@@ -271,10 +306,11 @@ function FilaTiquete({
   const [destino, setDestino] = useState<Destino | ''>(tiquete.Destino ?? '')
   const [factura, setFactura] = useState(tiquete.Factura ?? '')
 
-  const completo = tiquete.EstadoTiquete === 'Completo'
   // Factura solo aplica a Fortuitos (Muerto en Transporte/Desembarque/Reposo) — ver el
   // comentario en el campo Factura de ConsolidadoTiquete en src/types/models.ts.
   const esFortuito = tiquete.GrupoNovedad === 'Fortuito'
+  const faltaFactura = tiquete.EstadoTiquete === 'Completo' && esFortuito && !tiquete.Factura
+  const completo = tiqueteYaCompletado(tiquete)
 
   return (
     <tr className={clsx(tiquete.EstadoSync === 'Pendiente' && 'bg-amber-50/60')}>
@@ -325,10 +361,14 @@ function FilaTiquete({
         <span
           className={clsx(
             'rounded-full px-2 py-0.5 text-xs font-medium',
-            completo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600',
+            completo
+              ? 'bg-emerald-100 text-emerald-700'
+              : faltaFactura
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-slate-100 text-slate-600',
           )}
         >
-          {tiquete.EstadoTiquete}
+          {faltaFactura ? 'Falta factura' : tiquete.EstadoTiquete}
         </span>
         {tiquete.EstadoSync === 'Pendiente' && (
           <span className="ml-1.5 text-xs text-amber-600">sin subir</span>
