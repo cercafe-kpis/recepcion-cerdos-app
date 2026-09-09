@@ -169,19 +169,33 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
    * Fortuito, dejando el campo bloqueado sin poder completarlo). Si todavía
    * falta algo por diligenciar, se avisa y se deja decidir a la persona si
    * de verdad quiere cerrar así.
+   *
+   * IMPORTANTE: `EstadoTiquete` en Dexie (lo que usa tiqueteYaCompletado())
+   * solo se pone al día con un refresco explícito contra SharePoint (botón
+   * "Actualizar", o al elegir la Recepción) — guardar un campo NO lo
+   * actualiza solo (ver el comentario grande de esa función). Por eso, antes
+   * de revisar qué falta, esta función sincroniza y vuelve a traer los
+   * tiquetes primero (si hay conexión); si se revisara `tiquetes` tal cual
+   * está en pantalla, alguien que acabara de llenar todo vería "faltan
+   * todos" por pura desactualización, no porque de verdad falte algo.
    */
   async function terminarProceso() {
     if (!recepcion?.spId) return
-    const faltantes = tiquetes.filter((t) => !tiqueteYaCompletado(t))
-    if (faltantes.length > 0) {
-      const continuar = window.confirm(
-        `${faltantes.length} de ${tiquetes.length} tiquetes todavía no tienen Tiquete, Destino y Factura (si aplica) completos.\n\n¿Terminar el proceso de todas formas? Después de esto solo un Administrador podrá seguir editando este lote.`,
-      )
-      if (!continuar) return
-    }
     setTerminando(true)
     setError(undefined)
     try {
+      if (navigator.onLine) {
+        await sincronizar(usuario.Correo)
+        await cachearTiquetesDeRecepcion(recepcion.spId)
+      }
+      const frescos = await db.consolidadoTiquetes.where('RecepcionId').equals(recepcion.spId).toArray()
+      const faltantes = frescos.filter((t) => !tiqueteYaCompletado(t))
+      if (faltantes.length > 0) {
+        const continuar = window.confirm(
+          `${faltantes.length} de ${frescos.length} tiquetes todavía no tienen Tiquete, Destino y Factura (si aplica) completos.\n\n¿Terminar el proceso de todas formas? Después de esto solo un Administrador podrá seguir editando este lote.`,
+        )
+        if (!continuar) return
+      }
       await marcarLoteCompleto(recepcion.spId)
       await db.recepciones.update(recepcion.id, { EstadoLote: 'Completo' })
     } catch (err) {
