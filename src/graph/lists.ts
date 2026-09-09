@@ -308,6 +308,36 @@ export async function eliminarVehiculo(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
+ * SharePoint limita a 32 caracteres el nombre INTERNO de una columna (el que
+ * de verdad usa Graph al leer/escribir) — cuando el nombre que se le da al
+ * crearla en la interfaz pasa de eso, SharePoint lo corta a los primeros 32
+ * caracteres por dentro, aunque en pantalla (Configuración de lista, o el
+ * propio formulario) la columna se siga viendo con el nombre completo que se
+ * escribió. Estas 6 columnas (de los lesionados/caídos/agitados de llegada,
+ * cuáles NO se recuperaron y tocó "beneficiar de emergencia", y su Cantidad)
+ * tienen nombres de 35 a 44 caracteres — todas más largas que ese límite —
+ * así que su nombre real en SharePoint NO es el mismo que su nombre en este
+ * modelo. Esto pasó inadvertido hasta que Nathalia reportó que NINGUNA
+ * Recepción nueva sincronizaba, con Graph devolviendo 400 "Field
+ * 'NovLlegadaLesionadosBeneficioEmergencia' is not recognized" — confirmado
+ * uno por uno con ella revisando, en SharePoint, la URL de "Editar columna"
+ * (Configuración de lista → clic en el nombre de la columna), que sí trae el
+ * nombre real en `Field=...`, a diferencia de la lista de columnas, que solo
+ * muestra el nombre para MOSTRAR. Mapeo entre el nombre de este modelo (a la
+ * izquierda) y el nombre real en SharePoint (a la derecha — los primeros 32
+ * caracteres del de la izquierda; 3 de los 6 se confirmaron así con
+ * Nathalia, los otros 3 se calcularon con la misma regla):
+ */
+const NOMBRE_SP_BENEFICIO_EMERGENCIA = {
+  NovLlegadaLesionadosBeneficioEmergencia: 'NovLlegadaLesionadosBeneficioEme',
+  NovLlegadaCantLesionadosBeneficioEmergencia: 'NovLlegadaCantLesionadosBenefici',
+  NovLlegadaCaidosBeneficioEmergencia: 'NovLlegadaCaidosBeneficioEmergen',
+  NovLlegadaCantCaidosBeneficioEmergencia: 'NovLlegadaCantCaidosBeneficioEme',
+  NovLlegadaAgitadosBeneficioEmergencia: 'NovLlegadaAgitadosBeneficioEmerg',
+  NovLlegadaCantAgitadosBeneficioEmergencia: 'NovLlegadaCantAgitadosBeneficioE',
+} as const
+
+/**
  * Antes de crear una Recepción en SharePoint, revisa si ya existe una con el
  * mismo Consecutivo. El Consecutivo se digita a mano (no lo genera la app,
  * ver Arquitectura sección 4.2), así que dos dispositivos sin conexión pueden
@@ -360,16 +390,26 @@ function mapFieldsARecepcion(item: { id: string; fields: Record<string, unknown>
     CoincideGuiaICAvsQR: Boolean(f.CoincideGuiaICAvsQR),
     NovLlegadaLesionados: Boolean(f.NovLlegadaLesionados),
     NovLlegadaCantLesionados: numeroOpcional(f.NovLlegadaCantLesionados),
-    NovLlegadaLesionadosBeneficioEmergencia: Boolean(f.NovLlegadaLesionadosBeneficioEmergencia),
-    NovLlegadaCantLesionadosBeneficioEmergencia: numeroOpcional(f.NovLlegadaCantLesionadosBeneficioEmergencia),
+    NovLlegadaLesionadosBeneficioEmergencia: Boolean(
+      f[NOMBRE_SP_BENEFICIO_EMERGENCIA.NovLlegadaLesionadosBeneficioEmergencia],
+    ),
+    NovLlegadaCantLesionadosBeneficioEmergencia: numeroOpcional(
+      f[NOMBRE_SP_BENEFICIO_EMERGENCIA.NovLlegadaCantLesionadosBeneficioEmergencia],
+    ),
     NovLlegadaCaidos: Boolean(f.NovLlegadaCaidos),
     NovLlegadaCantCaidos: numeroOpcional(f.NovLlegadaCantCaidos),
-    NovLlegadaCaidosBeneficioEmergencia: Boolean(f.NovLlegadaCaidosBeneficioEmergencia),
-    NovLlegadaCantCaidosBeneficioEmergencia: numeroOpcional(f.NovLlegadaCantCaidosBeneficioEmergencia),
+    NovLlegadaCaidosBeneficioEmergencia: Boolean(f[NOMBRE_SP_BENEFICIO_EMERGENCIA.NovLlegadaCaidosBeneficioEmergencia]),
+    NovLlegadaCantCaidosBeneficioEmergencia: numeroOpcional(
+      f[NOMBRE_SP_BENEFICIO_EMERGENCIA.NovLlegadaCantCaidosBeneficioEmergencia],
+    ),
     NovLlegadaAgitados: Boolean(f.NovLlegadaAgitados),
     NovLlegadaCantAgitados: numeroOpcional(f.NovLlegadaCantAgitados),
-    NovLlegadaAgitadosBeneficioEmergencia: Boolean(f.NovLlegadaAgitadosBeneficioEmergencia),
-    NovLlegadaCantAgitadosBeneficioEmergencia: numeroOpcional(f.NovLlegadaCantAgitadosBeneficioEmergencia),
+    NovLlegadaAgitadosBeneficioEmergencia: Boolean(
+      f[NOMBRE_SP_BENEFICIO_EMERGENCIA.NovLlegadaAgitadosBeneficioEmergencia],
+    ),
+    NovLlegadaCantAgitadosBeneficioEmergencia: numeroOpcional(
+      f[NOMBRE_SP_BENEFICIO_EMERGENCIA.NovLlegadaCantAgitadosBeneficioEmergencia],
+    ),
     FortuitoMuertoTransporte: Boolean(f.FortuitoMuertoTransporte),
     FortuitoCantMuertoTransporte: numeroOpcional(f.FortuitoCantMuertoTransporte),
     FortuitoMuertoDesembarque: Boolean(f.FortuitoMuertoDesembarque),
@@ -433,12 +473,33 @@ export async function listarRecepcionesPorRangoFecha(desde: string, hasta: strin
  * esos si se pueden esparcir.
  */
 function mapRecepcionAFields(recepcion: Omit<Recepcion, 'id' | 'spId' | 'RecibidaEn'>) {
-  const { AsociadoId, GranjaId, PlacaVehiculoId, ...resto } = recepcion
+  const {
+    AsociadoId,
+    GranjaId,
+    PlacaVehiculoId,
+    // Estas 6 tampoco se pueden esparcir tal cual (ver NOMBRE_SP_BENEFICIO_EMERGENCIA arriba) —
+    // su nombre de columna real en SharePoint no es el mismo que su nombre en este modelo.
+    NovLlegadaLesionadosBeneficioEmergencia,
+    NovLlegadaCantLesionadosBeneficioEmergencia,
+    NovLlegadaCaidosBeneficioEmergencia,
+    NovLlegadaCantCaidosBeneficioEmergencia,
+    NovLlegadaAgitadosBeneficioEmergencia,
+    NovLlegadaCantAgitadosBeneficioEmergencia,
+    ...resto
+  } = recepcion
   return {
     ...resto,
     AsociadoIdLookupId: Number(AsociadoId),
     GranjaIdLookupId: Number(GranjaId),
     PlacaVehiculoIdLookupId: Number(PlacaVehiculoId),
+    [NOMBRE_SP_BENEFICIO_EMERGENCIA.NovLlegadaLesionadosBeneficioEmergencia]: NovLlegadaLesionadosBeneficioEmergencia,
+    [NOMBRE_SP_BENEFICIO_EMERGENCIA.NovLlegadaCantLesionadosBeneficioEmergencia]:
+      NovLlegadaCantLesionadosBeneficioEmergencia,
+    [NOMBRE_SP_BENEFICIO_EMERGENCIA.NovLlegadaCaidosBeneficioEmergencia]: NovLlegadaCaidosBeneficioEmergencia,
+    [NOMBRE_SP_BENEFICIO_EMERGENCIA.NovLlegadaCantCaidosBeneficioEmergencia]: NovLlegadaCantCaidosBeneficioEmergencia,
+    [NOMBRE_SP_BENEFICIO_EMERGENCIA.NovLlegadaAgitadosBeneficioEmergencia]: NovLlegadaAgitadosBeneficioEmergencia,
+    [NOMBRE_SP_BENEFICIO_EMERGENCIA.NovLlegadaCantAgitadosBeneficioEmergencia]:
+      NovLlegadaCantAgitadosBeneficioEmergencia,
   }
 }
 
