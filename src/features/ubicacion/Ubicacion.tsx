@@ -26,6 +26,15 @@ export function Ubicacion({ usuario }: { usuario: Usuario }) {
   // en syncService.ts, que las trae de SharePoint apenas hay conexión.
   const recepciones = useLiveQuery(() => db.recepciones.orderBy('CapturadaEn').reverse().toArray(), []) ?? []
 
+  // A pedido de Nathalia (2026-09-09): antes se podía seguir agregando Ubicación a una Recepción
+  // ya cerrada con "Terminar proceso" en Consolidado — este formulario no revisaba EstadoLote para
+  // nada. Mismo criterio que ya existe en Consolidado.tsx: una vez cerrada, solo un Administrador
+  // puede seguir usándola (por ejemplo, para corregir un error) — el resto ni la ve en el selector.
+  const esAdmin = usuario.Rol === 'Administrador'
+  const recepcionesDisponibles = esAdmin
+    ? recepciones
+    : recepciones.filter((r) => r.EstadoLote !== 'Completo')
+
   const {
     register,
     handleSubmit,
@@ -72,9 +81,18 @@ export function Ubicacion({ usuario }: { usuario: Usuario }) {
             requerido
             {...register('RecepcionId')}
             error={errors.RecepcionId?.message}
-            opciones={recepciones.map((r) => ({ value: r.id, label: r.Title }))}
+            opciones={recepcionesDisponibles.map((r) => ({
+              value: r.id,
+              label: r.EstadoLote === 'Completo' ? `${r.Title} (cerrada)` : r.Title,
+            }))}
             placeholder="Selecciona la recepción…"
           />
+          {!esAdmin && recepciones.length !== recepcionesDisponibles.length && (
+            <p className="text-xs text-slate-400">
+              Las recepciones ya cerradas (con "Terminar proceso" en Consolidado) no aparecen aquí —
+              solo un Administrador puede seguir usándolas.
+            </p>
+          )}
           <CampoTexto
             type="number"
             step="0.1"
