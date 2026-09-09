@@ -512,14 +512,29 @@ export async function crearRecepcionEnSharePoint(
 }
 
 /**
- * Marca una Recepción como cerrada — ver cerrarLotesCompletos() en
- * syncService.ts, que decide CUÁNDO se cumple esa condición y es quien llama
- * esta función. Solo cambia el estado en SharePoint; quien la llama también
- * debe actualizar la copia local en Dexie para que el filtro "En proceso"
- * deje de traerla en la próxima descargarRecepcionesEnProceso().
+ * Marca una Recepción como cerrada — la llama terminarProceso() en
+ * Consolidado.tsx cuando la persona hace clic en "Terminar proceso" (acción
+ * 100% manual, ver el comentario grande ahí: antes se decidía sola dentro de
+ * cerrarLotesCompletos() en syncService.ts, ya retirada). Solo cambia el
+ * estado en SharePoint; quien la llama también debe actualizar la copia
+ * local en Dexie para que el filtro "En proceso" deje de traerla en la
+ * próxima descargarRecepcionesEnProceso().
  */
 export async function marcarLoteCompleto(recepcionSpId: string): Promise<void> {
   await updateItem('Recepciones', recepcionSpId, { EstadoLote: 'Completo' })
+}
+
+/**
+ * Contraparte de marcarLoteCompleto(): reabre un lote que se cerró por
+ * error (por ejemplo, uno que ya había quedado "Completo" bajo la regla
+ * automática vieja, antes de que existiera "Terminar proceso" en
+ * Consolidado.tsx, sin que todos los Fortuitos tuvieran su Factura). Un
+ * Administrador siempre puede editar un lote completo de todas formas — esto
+ * es solo para devolverlo a "En proceso" y que vuelva a aparecer como
+ * pendiente para el resto del equipo.
+ */
+export async function reabrirLote(recepcionSpId: string): Promise<void> {
+  await updateItem('Recepciones', recepcionSpId, { EstadoLote: 'En proceso' })
 }
 
 /**
