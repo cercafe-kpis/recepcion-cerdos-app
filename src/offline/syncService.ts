@@ -5,8 +5,6 @@ import {
   crearRecepcionEnSharePoint,
   crearUbicacionEnSharePoint,
   existeConsecutivo,
-  existeNovedadCorralDeRecepcion,
-  existeUbicacionDeRecepcion,
   generarTiqueteMuertoReposo,
   generarTiquetesFaltantes,
   listarAsociados,
@@ -16,7 +14,6 @@ import {
   listarTiquetesDeRecepcion,
   listarUsuarios,
   listarVehiculos,
-  marcarLoteCompleto,
   registrarLog,
 } from '../graph/lists'
 import type { ConsolidadoTiquete, NovedadCorral, Recepcion } from '../types/models'
@@ -117,7 +114,6 @@ export async function sincronizar(usuarioActual: string): Promise<ResultadoSync>
   await sincronizarUbicaciones(resultado)
   await sincronizarNovedadesCorral(resultado)
   await sincronizarTiquetesPendientes(resultado)
-  await cerrarLotesCompletos(resultado)
 
   try {
     await descargarRecepcionesEnProceso()
@@ -248,52 +244,21 @@ async function sincronizarTiquetesPendientes(resultado: ResultadoSync): Promise<
 }
 
 /**
- * Cierra ("Completo") las Recepciones que ya cumplieron su ciclo, para que
- * dejen de contar como "En proceso" — sin esto, listarRecepcionesEnProceso()
- * (y por lo tanto descargarRecepcionesEnProceso()) iría acumulando CADA
- * Recepción para siempre y la descarga inicial de cada dispositivo se
- * volvería cada vez más lenta con los meses.
- *
- * Regla de cierre: primero deben existir Ubicación Y Novedades en Corral
- * para esa Recepción (revisado contra Graph, nunca Dexie, porque cualquiera
- * de las dos pudo capturarse en OTRO dispositivo) — mientras falte alguna,
- * el lote sigue su flujo normal y ni siquiera se revisan sus tiquetes,
- * porque Novedades en Corral es justamente lo que puede generar más tiquetes
- * (Muerto en Reposo). Una vez están las dos:
- *   - si el lote no generó ningún tiquete (no hubo novedades de llegada,
- *     fortuitos ni muertos en reposo), se cierra de una vez;
- *   - si generó tiquetes, se cierra solo cuando TODOS ya tienen Tiquete y
- *     Destino diligenciados en Consolidado (EstadoTiquete === 'Completo').
- *
- * Solo recorre Recepciones ya sincronizadas y todavía "En proceso" — en la
- * práctica, un puñado de lotes abiertos a la vez, no el historial completo —
- * así que esto no debería notarse como lentitud en la sincronización.
+ * Antes, esta función (`cerrarLotesCompletos`) marcaba sola una Recepción
+ * como "Completo" apenas todos sus tiquetes tenían Tiquete+Destino — pero
+ * eso pasa (ver actualizarTiquete() en graph/lists.ts) SIN esperar a que los
+ * Fortuitos tengan Factura, así que un lote podía cerrarse solo, bloqueando
+ * la edición para no-Administradores (ver el candado en Consolidado.tsx),
+ * antes de que alguien alcanzara a ponerle la factura a un Fortuito. A
+ * pedido explícito de Nathalia (2026-09-09), cerrar un lote ahora es una
+ * acción manual — el botón "Terminar proceso" en Consolidado.tsx, que llama
+ * directamente a marcarLoteCompleto() — precisamente porque el proceso se
+ * hace en varias partes/sesiones y hace falta un punto final explícito, en
+ * vez de que el sistema adivine solo cuándo ya "quedó totalmente
+ * gestionada". Como consecuencia, un lote sin ese clic se sigue trayendo
+ * como "En proceso" (ver listarRecepcionesEnProceso) indefinidamente — a
+ * cambio de la garantía de que nunca se cierra antes de tiempo.
  */
-async function cerrarLotesCompletos(resultado: ResultadoSync): Promise<void> {
-  const candidatas = await db.recepciones
-    .filter((r) => r.EstadoSync === 'Sincronizada' && r.EstadoLote !== 'Completo' && Boolean(r.spId))
-    .toArray()
-
-  for (const rec of candidatas) {
-    const spId = rec.spId as string
-    try {
-      const [tieneUbicacion, tieneNovedadCorral] = await Promise.all([
-        existeUbicacionDeRecepcion(spId),
-        existeNovedadCorralDeRecepcion(spId),
-      ])
-      if (!tieneUbicacion || !tieneNovedadCorral) continue // el lote sigue su flujo normal, todavía no se puede cerrar
-
-      const tiquetes = await listarTiquetesDeRecepcion(spId)
-      const yaCompleto = tiquetes.length === 0 || tiquetes.every((t) => t.EstadoTiquete === 'Completo')
-      if (!yaCompleto) continue
-
-      await marcarLoteCompleto(spId)
-      await db.recepciones.update(rec.id, { EstadoLote: 'Completo' })
-    } catch (err) {
-      resultado.errores.push(`No se pudo revisar si la Recepción ${rec.Consecutivo} ya está completa: ${(err as Error).message}`)
-    }
-  }
-}
 
 /**
  * Trae de Graph los tiquetes de una Recepción ya sincronizada y los guarda
