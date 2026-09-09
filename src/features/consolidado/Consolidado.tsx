@@ -6,11 +6,12 @@ import { cachearTiquetesDeRecepcion, guardarEdicionTiqueteLocal, sincronizar } f
 import {
   generarTiqueteMuertoReposo,
   generarTiquetesFaltantes,
+  listarRecepcionesPorRangoFecha,
   marcarLoteCompleto,
   obtenerNovedadCorralDeRecepcion,
   reabrirLote,
 } from '../../graph/lists'
-import { CampoSelect } from '../../components/CamposFormulario'
+import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { ReporteDiarioLote } from '../reportes/ReporteDiarioLote'
 import type { ConsolidadoTiquete, Destino, Usuario } from '../../types/models'
 
@@ -29,6 +30,8 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [regenerando, setRegenerando] = useState(false)
   const [terminando, setTerminando] = useState(false)
   const [reabriendo, setReabriendo] = useState(false)
+  const [fechaBusqueda, setFechaBusqueda] = useState('')
+  const [buscando, setBuscando] = useState(false)
   const [error, setError] = useState<string>()
   const [verReporteInmediato, setVerReporteInmediato] = useState(false)
   const esAdmin = usuario.Rol === 'Administrador'
@@ -77,6 +80,46 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
       await cachearTiquetesDeRecepcion(recepcion.spId)
     } finally {
       setActualizando(false)
+    }
+  }
+
+  /**
+   * El selector de Recepción de arriba solo lista lo que YA está en Dexie en
+   * ESTE dispositivo — y lo único que se trae solo, sin pedirlo, son las
+   * Recepciones todavía "En proceso" (ver descargarRecepcionesEnProceso() en
+   * syncService.ts, que a propósito no trae las que ya quedaron "Completo",
+   * para no descargar cada vez más historial con los meses). Por eso una
+   * Recepción capturada y ya cerrada (con "Terminar proceso", o antes con la
+   * regla automática vieja) en OTRO dispositivo nunca aparecía sola en este
+   * — había que haberla traído mientras todavía estaba "En proceso". Esto le
+   * da una salida manual: buscar por fecha exacta en SharePoint (funciona
+   * para cualquier Recepción, esté completa o no) y traerla a Dexie de este
+   * dispositivo, igual que descargarRecepcionesEnProceso() pero sin ese
+   * filtro — sin pisar nada si ya existía localmente.
+   */
+  async function buscarPorFecha() {
+    if (!fechaBusqueda) return
+    setBuscando(true)
+    setError(undefined)
+    try {
+      const remotas = await listarRecepcionesPorRangoFecha(fechaBusqueda, fechaBusqueda)
+      let nuevas = 0
+      for (const rec of remotas) {
+        const yaExiste = await db.recepciones.where('spId').equals(rec.spId as string).first()
+        if (!yaExiste) {
+          await db.recepciones.put(rec)
+          nuevas++
+        }
+      }
+      if (remotas.length === 0) {
+        setError('No se encontró ninguna Recepción sincronizada con esa fecha.')
+      } else if (nuevas === 0) {
+        setError('Las Recepciones de esa fecha ya estaban en este dispositivo — revisa el selector de arriba.')
+      }
+    } catch (err) {
+      setError(`No se pudo buscar por esa fecha: ${(err as Error).message}`)
+    } finally {
+      setBuscando(false)
     }
   }
 
@@ -194,6 +237,29 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
           placeholder="Selecciona una recepción sincronizada…"
         />
       </div>
+
+      <div className="mt-3 flex max-w-sm items-end gap-2 print:hidden">
+        <div className="flex-1">
+          <CampoTexto
+            etiqueta="¿No aparece? Buscar por fecha"
+            type="date"
+            value={fechaBusqueda}
+            onChange={(e) => setFechaBusqueda(e.target.value)}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => void buscarPorFecha()}
+          disabled={buscando || !fechaBusqueda || !navigator.onLine}
+          className="rounded-md border border-brand-navy px-3 py-2 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint disabled:opacity-50"
+        >
+          {buscando ? 'Buscando…' : 'Buscar'}
+        </button>
+      </div>
+      <p className="mt-1 max-w-sm text-xs text-slate-400 print:hidden">
+        Trae a este dispositivo las Recepciones sincronizadas de esa fecha, capturadas desde otro
+        celular o computador — incluidas las que ya quedaron completas.
+      </p>
 
       {!recepcion && recepciones.length === 0 && (
         <p className="mt-6 text-sm text-slate-500">
