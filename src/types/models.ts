@@ -75,6 +75,14 @@ export interface CapturaOffline {
 
 export type EstadoLote = 'En proceso' | 'Completo'
 export type SuciedadCerdos = 'Alta' | 'Baja'
+/**
+ * A pedido de Nathalia (2026-09-10): antes era texto libre. Se guarda como
+ * string 'Sí'/'No' (no boolean) a propósito — la columna en SharePoint sigue
+ * siendo de tipo Texto (ver arquitectura-datos-recepcion-cerdos.md), así que
+ * escribir estos dos literales no requiere ningún cambio de columna ni
+ * migración de datos existentes.
+ */
+export type RemisionGranja = 'Sí' | 'No'
 
 export interface Recepcion extends CapturaOffline {
   id: string
@@ -100,8 +108,9 @@ export interface Recepcion extends CapturaOffline {
   NumeroTotalCerdos: number
   PesoPromedioGranja: number
   PlacaVehiculoId: string
+  /** Formato forzado en el formulario: 3 cifras + guion + el resto (ej. "026-445555552") — ver formatearGuiaICA() en Recepcion.tsx. */
   GuiaSanitariaICA: string
-  RemisionGranja: string
+  RemisionGranja: RemisionGranja
   QRLote: boolean
   CertificadoInmunocastracion: boolean
   CoincideGuiaICAvsQR: boolean
