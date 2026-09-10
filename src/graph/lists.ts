@@ -384,7 +384,9 @@ function mapFieldsARecepcion(item: { id: string; fields: Record<string, unknown>
     PesoPromedioGranja: Number(f.PesoPromedioGranja ?? 0),
     PlacaVehiculoId: String(f.PlacaVehiculoIdLookupId ?? ''),
     GuiaSanitariaICA: String(f.GuiaSanitariaICA ?? ''),
-    RemisionGranja: String(f.RemisionGranja ?? ''),
+    // Columna de Texto en SharePoint (ver models.ts) — se valida contra el único literal
+    // esperado y cualquier otra cosa (vacío, o data vieja de cuando era texto libre) cae a 'No'.
+    RemisionGranja: f.RemisionGranja === 'Sí' ? 'Sí' : 'No',
     QRLote: Boolean(f.QRLote),
     CertificadoInmunocastracion: Boolean(f.CertificadoInmunocastracion),
     CoincideGuiaICAvsQR: Boolean(f.CoincideGuiaICAvsQR),
