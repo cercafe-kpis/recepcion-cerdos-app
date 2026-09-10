@@ -390,6 +390,7 @@ export function ReporteSemanalAsociado({
               return (
                 <div
                   key={g.nombre}
+                  data-pdf-bloque=""
                   className={`rounded-md border-l-4 bg-slate-50 p-3 ${badges.length > 0 ? 'border-purple-400' : 'border-emerald-400'}`}
                 >
                   <div className="flex items-baseline justify-between gap-2">
@@ -421,7 +422,7 @@ export function ReporteSemanalAsociado({
             <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Vehículos con novedades</p>
             <div className="grid gap-2 sm:grid-cols-2">
               {porVehiculo.map((v) => (
-                <div key={v.placa} className="rounded-md border-l-4 border-purple-400 bg-purple-50/40 p-3">
+                <div key={v.placa} data-pdf-bloque="" className="rounded-md border-l-4 border-purple-400 bg-purple-50/40 p-3">
                   <div className="flex items-baseline justify-between gap-2">
                     <p className="font-semibold text-slate-800">🚛 {v.placa}</p>
                     <p className="shrink-0 text-xs text-slate-500">
@@ -476,7 +477,11 @@ export function ReporteSemanalAsociado({
                 const caidos = (r.NovLlegadaCantCaidos ?? 0) + (novedadCorral?.CorralCantCaidos ?? 0)
                 const lesionados = (r.NovLlegadaCantLesionados ?? 0) + (novedadCorral?.CorralCantLesionados ?? 0)
                 return (
-                  <div key={r.id} className={`flex border-t border-slate-200 ${i % 2 === 1 ? 'bg-purple-50/30' : 'bg-white'}`}>
+                  <div
+                    key={r.id}
+                    data-pdf-bloque=""
+                    className={`flex border-t border-slate-200 ${i % 2 === 1 ? 'bg-purple-50/30' : 'bg-white'}`}
+                  >
                     <div className="flex-1 px-1 py-1.5">{fechaCorta(r.FechaRecepcion)}</div>
                     <div className="flex-1 px-1 py-1.5">{mapaGranjas.get(r.GranjaId)?.Title ?? '—'}</div>
                     <div className="flex-1 px-1 py-1.5">{r.Consecutivo}</div>
@@ -497,9 +502,13 @@ export function ReporteSemanalAsociado({
           </div>
         </div>
 
-        {/* Buenas prácticas — contenido fijo, igual cada semana */}
+        {/* Buenas prácticas — contenido fijo, igual cada semana. data-pdf-bloque en la tarjeta
+            completa (encabezado + contenido): siempre mide menos que una página, así que marcarla
+            entera evita que el corte del PDF caiga justo debajo del encabezado dejándolo "huérfano"
+            al final de una página con el contenido empezando recién en la siguiente (ver el
+            comentario grande de calcularCortesDePagina() en descargarImagen.ts). */}
         <div className="px-5 pb-5">
-          <div className="overflow-hidden rounded-md border border-slate-200">
+          <div data-pdf-bloque="" className="overflow-hidden rounded-md border border-slate-200">
             <p className="bg-brand-navy px-3 py-2 text-xs font-bold uppercase tracking-wide text-white">
               🐷 Buenas prácticas para el transporte de cerdos a planta de beneficio
             </p>
@@ -528,8 +537,11 @@ export function ReporteSemanalAsociado({
           </div>
         </div>
 
-        {/* Metodología del semáforo — contenido fijo */}
-        <div className="px-5 pb-5">
+        {/* Metodología del semáforo — contenido fijo. data-pdf-bloque en TODO el bloque (el título
+            de arriba junto con la tarjeta) para que el título nunca quede solo al final de una
+            página con la tarjeta empezando en la siguiente — ver el mismo comentario en "Buenas
+            prácticas" más arriba. */}
+        <div data-pdf-bloque="" className="px-5 pb-5">
           <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Metodología del semáforo</p>
           <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
             <p className="text-xs text-slate-600">
@@ -552,9 +564,13 @@ export function ReporteSemanalAsociado({
           </div>
         </div>
 
-        {/* Glosario — contenido fijo */}
+        {/* Glosario — contenido fijo. data-pdf-bloque en la tarjeta completa: es justo la sección
+            que Nathalia reportó viendo cortada entre la página 1 y la página 2 del PDF (el
+            encabezado "Definiciones" quedaba al final de una página y el contenido empezaba en la
+            siguiente) — ver el comentario grande de calcularCortesDePagina() en
+            descargarImagen.ts. */}
         <div className="px-5 pb-5">
-          <div className="overflow-hidden rounded-md border border-slate-200">
+          <div data-pdf-bloque="" className="overflow-hidden rounded-md border border-slate-200">
             <p className="bg-brand-navy px-3 py-2 text-xs font-bold uppercase tracking-wide text-white">📋 Definiciones</p>
             <div className="grid gap-3 bg-white p-3 sm:grid-cols-2">
               <Definicion color="purple" titulo="Cerdo agitado">
