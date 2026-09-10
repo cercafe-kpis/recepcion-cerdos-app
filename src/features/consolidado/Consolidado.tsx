@@ -4,8 +4,8 @@ import clsx from 'clsx'
 import { db } from '../../offline/db'
 import { cachearTiquetesDeRecepcion, guardarEdicionTiqueteLocal, sincronizar } from '../../offline/syncService'
 import {
-  generarTiqueteMuertoReposo,
   generarTiquetesFaltantes,
+  generarTiquetesNovedadCorral,
   listarRecepcionesPorRangoFecha,
   marcarLoteCompleto,
   obtenerNovedadCorralDeRecepcion,
@@ -19,7 +19,7 @@ import type { ConsolidadoTiquete, Destino, Usuario } from '../../types/models'
  * El objetivo de todo el flujo (Recepción → Ubicación/Novedades en Corral →
  * Consolidado): ponerle Tiquete y Destino a cada animal que tuvo alguna
  * novedad, uno por uno. Las filas de la tabla las genera el servidor de
- * sincronización (ver generarTiquetesFaltantes / generarTiqueteMuertoReposo
+ * sincronización (ver generarTiquetesFaltantes / generarTiquetesNovedadCorral
  * en src/graph/lists.ts) — esta pantalla no crea tiquetes, solo permite
  * completarlos. Por eso solo aparecen aquí las Recepciones que ya
  * sincronizaron al menos una vez.
@@ -131,7 +131,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
    * en silencio (ver el comentario en sincronizar() en syncService.ts, ya
    * corregido). Solo hace falta usar esto para Recepciones capturadas ANTES
    * de esa corrección; de aquí en adelante generarTiquetesFaltantes/
-   * generarTiqueteMuertoReposo ya deberían crear los tiquetes solos al
+   * generarTiquetesNovedadCorral ya deberían crear los tiquetes solos al
    * sincronizar. Es seguro repetirlo las veces que sea: generarTiquetesFaltantes
    * nunca duplica una fila que ya exista.
    *
@@ -149,7 +149,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
       await generarTiquetesFaltantes(recepcion)
       const novedad = await obtenerNovedadCorralDeRecepcion(recepcion.spId)
       if (novedad) {
-        await generarTiqueteMuertoReposo(novedad, { spId: recepcion.spId, Consecutivo: recepcion.Consecutivo })
+        await generarTiquetesNovedadCorral(novedad, { spId: recepcion.spId, Consecutivo: recepcion.Consecutivo })
       }
       await cachearTiquetesDeRecepcion(recepcion.spId)
     } catch (err) {
