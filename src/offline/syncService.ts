@@ -5,8 +5,8 @@ import {
   crearRecepcionEnSharePoint,
   crearUbicacionEnSharePoint,
   existeConsecutivo,
-  generarTiqueteMuertoReposo,
   generarTiquetesFaltantes,
+  generarTiquetesNovedadCorral,
   listarAsociados,
   listarGranjas,
   listarGruposAsociados,
@@ -206,7 +206,7 @@ async function sincronizarNovedadesCorral(resultado: ResultadoSync): Promise<voi
       const novedadSincronizada: NovedadCorral = { ...nov, spId, RecibidaEn, EstadoSync: 'Sincronizada' }
       await db.novedadesCorral.update(nov.id, { spId, RecibidaEn, EstadoSync: 'Sincronizada' })
 
-      await generarTiqueteMuertoReposo(novedadSincronizada, { spId: padre.spId, Consecutivo: padre.Consecutivo })
+      await generarTiquetesNovedadCorral(novedadSincronizada, { spId: padre.spId, Consecutivo: padre.Consecutivo })
       await cachearTiquetesDeRecepcion(padre.spId)
       resultado.novedadesSubidas++
     } catch (err) {
@@ -218,7 +218,7 @@ async function sincronizarNovedadesCorral(resultado: ResultadoSync): Promise<voi
 /**
  * A diferencia de las tres anteriores, ConsolidadoTiquetes no crea filas
  * nuevas desde el dispositivo (esas las genera el propio servidor de sync
- * vía generarTiquetesFaltantes/generarTiqueteMuertoReposo): lo que se
+ * vía generarTiquetesFaltantes/generarTiquetesNovedadCorral): lo que se
  * sincroniza aquí son las EDICIONES hechas en la pantalla Consolidado
  * (asignar Tiquete y Destino a un animal) mientras no había conexión.
  */
