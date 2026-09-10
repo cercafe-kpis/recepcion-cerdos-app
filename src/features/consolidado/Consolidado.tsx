@@ -249,7 +249,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     <div>
       <h1 className="text-xl font-semibold text-slate-800 print:hidden">Consolidado</h1>
       <p className="mt-1 text-sm text-slate-500 print:hidden">
-        Asigna el número de tiquete y el destino (Procesado o Decomisado) a cada animal con novedad.
+        Asigna el número de tiquete y el destino (Procesado, Decomisado o Decomisado en canal) a cada animal con novedad.
       </p>
 
       {error && <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red print:hidden">{error}</p>}
@@ -509,6 +509,7 @@ function FilaTiquete({
           <option value="">—</option>
           <option value="Procesado">Procesado</option>
           <option value="Decomisado">Decomisado</option>
+          <option value="Decomisado en canal">Decomisado en canal</option>
         </select>
       </td>
       <td className="px-3 py-2">
