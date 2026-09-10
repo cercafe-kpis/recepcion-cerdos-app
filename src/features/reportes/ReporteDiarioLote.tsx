@@ -6,7 +6,7 @@ import {
   generarArchivoPDF,
   precargarLibreriaDeImagen,
 } from '../../utils/descargarImagen'
-import type { ConsolidadoTiquete, Recepcion, TipoNovedad } from '../../types/models'
+import type { ConsolidadoTiquete, NovedadCorral, Recepcion, TipoNovedad } from '../../types/models'
 
 const BASE = import.meta.env.BASE_URL
 
@@ -65,6 +65,15 @@ function agruparPorDestino(tiquetes: ConsolidadoTiquete[], tipo: TipoNovedad): A
  * Tiempo de espera y Tiempo de desembarque NO se capturan aparte: se
  * calculan solos a partir de Hora programada / Hora de llegada / Hora de
  * inicio / Hora final de desembarque, que sí se capturan en Recepcion.tsx.
+ *
+ * Lesión/Agitados/Caídos suman DOS orígenes en la misma celda (a pedido del
+ * usuario, para no alterar el formato de la plantilla de referencia con
+ * columnas nuevas): lo capturado en Recepción ("Novedad de llegada") más lo
+ * capturado después en Ubicación/Novedades en Corral ("Novedad en corral" —
+ * `novedadCorral`, opcional porque una Recepción puede no tener todavía ese
+ * registro). Se usa el total crudo de cada uno (Cant..., no el de
+ * Benef.Emergencia), igual que el resto de columnas de esta tabla ya
+ * mostraban el total crudo de Novedad de llegada.
  */
 export function ReporteDiarioLote({
   recepcion,
@@ -72,12 +81,14 @@ export function ReporteDiarioLote({
   granjaNombre,
   placa,
   tiquetes,
+  novedadCorral,
 }: {
   recepcion: Recepcion
   asociadoNombre: string
   granjaNombre: string
   placa: string
   tiquetes: ConsolidadoTiquete[]
+  novedadCorral?: NovedadCorral
 }) {
   const contenedorRef = useRef<HTMLDivElement>(null)
   const [descargando, setDescargando] = useState(false)
@@ -96,6 +107,12 @@ export function ReporteDiarioLote({
   const fortuitoTransporte = agruparPorDestino(tiquetes, 'Muerto en Transporte')
   const fortuitoDesembarque = agruparPorDestino(tiquetes, 'Muerto en Desembarque')
   const fortuitoReposo = agruparPorDestino(tiquetes, 'Muerto en Reposo')
+
+  // Novedad de llegada + Novedad en corral, combinadas (ver el comentario grande sobre
+  // novedadCorral en el encabezado de este archivo).
+  const totalLesionados = (recepcion.NovLlegadaCantLesionados ?? 0) + (novedadCorral?.CorralCantLesionados ?? 0)
+  const totalAgitados = (recepcion.NovLlegadaCantAgitados ?? 0) + (novedadCorral?.CorralCantAgitados ?? 0)
+  const totalCaidos = (recepcion.NovLlegadaCantCaidos ?? 0) + (novedadCorral?.CorralCantCaidos ?? 0)
 
   // Precarga dom-to-image-more apenas se muestra este reporte en pantalla (no espera a que se
   // toque "Descargar imagen") — ver el comentario de precargarLibreriaDeImagen() en
@@ -319,13 +336,13 @@ export function ReporteDiarioLote({
 
             <div className="flex border-t border-slate-200">
               <div className="flex-1 border-r border-slate-200 px-1 py-1.5">
-                {recepcion.NovLlegadaLesionados ? recepcion.NovLlegadaCantLesionados ?? '—' : '—'}
+                {totalLesionados > 0 ? totalLesionados : '—'}
               </div>
               <div className="flex-1 border-r border-slate-200 px-1 py-1.5">
-                {recepcion.NovLlegadaAgitados ? recepcion.NovLlegadaCantAgitados ?? '—' : '—'}
+                {totalAgitados > 0 ? totalAgitados : '—'}
               </div>
               <div className="flex-1 border-r border-slate-200 px-1 py-1.5">
-                {recepcion.NovLlegadaCaidos ? recepcion.NovLlegadaCantCaidos ?? '—' : '—'}
+                {totalCaidos > 0 ? totalCaidos : '—'}
               </div>
               <FilaFortuito grupos={fortuitoTransporte} />
               <FilaFortuito grupos={fortuitoDesembarque} />
