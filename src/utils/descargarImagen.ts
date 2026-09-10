@@ -102,6 +102,23 @@ function esperarImagen(img: HTMLImageElement): Promise<void> {
 }
 
 /**
+ * Un "bloque protegido" es cualquier elemento del reporte marcado con el atributo
+ * `data-pdf-bloque` (ver ReporteSemanalAsociado.tsx) — una tarjeta, una fila de tabla, un ítem del
+ * glosario — que nunca debería quedar partido a la mitad entre dos páginas del PDF. Se mide DESPUÉS
+ * de que el clon ya está listo para capturarse (mismo momento en que se miden ancho/alto), tomando
+ * la posición de cada bloque relativa al borde superior del clon — así crearPDFDesdeImagen() puede
+ * calcular en qué alturas cortar cada página sin partir ninguno de estos bloques (ver
+ * calcularCortesDePagina()).
+ */
+function medirBloquesProtegidos(clon: HTMLElement): { top: number; bottom: number }[] {
+  const topClon = clon.getBoundingClientRect().top
+  return Array.from(clon.querySelectorAll<HTMLElement>('[data-pdf-bloque]')).map((el) => {
+    const rect = el.getBoundingClientRect()
+    return { top: rect.top - topClon, bottom: rect.bottom - topClon }
+  })
+}
+
+/**
  * Se asegura de que el elemento esté realmente listo para capturarse: espera las fuentes
  * (document.fonts.ready), espera que todas las imágenes de adentro (el logo de Cercafe) hayan
  * terminado de cargar, y espera dos frames de pintado. Sin esto, la captura podía salir con el
@@ -201,7 +218,7 @@ function esMovilDeVerdad(): boolean {
 async function capturarComoPNG(
   elemento: HTMLElement,
   alProgresar?: (mensaje: string) => void,
-): Promise<{ blob: Blob; ancho: number; alto: number }> {
+): Promise<{ blob: Blob; ancho: number; alto: number; bloquesProtegidos: { top: number; bottom: number }[] }> {
   alProgresar?.('Cargando…')
   const { default: domtoimage } = await cargarLibreria()
 
@@ -216,6 +233,7 @@ async function capturarComoPNG(
 
         const ancho = clon.getBoundingClientRect().width || ANCHO_CAPTURA
         const alto = clon.scrollHeight || clon.getBoundingClientRect().height || 800
+        const bloquesProtegidos = medirBloquesProtegidos(clon)
 
         alProgresar?.('Dibujando imagen…')
         const blob = await domtoimage.toBlob(clon, {
@@ -233,7 +251,7 @@ async function capturarComoPNG(
           disableEmbedFonts: true,
           httpTimeout: 8000,
         })
-        return { blob, ancho, alto }
+        return { blob, ancho, alto, bloquesProtegidos }
       })(),
       LIMITE_TIEMPO_MS,
       'La generación tardó demasiado y se canceló. Vuelve a intentarlo.',
@@ -401,15 +419,59 @@ async function convertirAJPEG(blobPNG: Blob): Promise<string> {
 }
 
 /**
+ * Calcula en qué alturas (dentro de la imagen completa del informe, ya convertidas a puntos de
+ * PDF) debe empezar cada página — a pedido de Nathalia ("el reporte queda cortado al pasar a la
+ * segunda hoja"): antes cada página empezaba siempre exactamente `altoPagina` puntos después de la
+ * anterior, sin importar QUÉ hubiera justo en ese punto de corte, así que una tarjeta o una fila de
+ * tabla que cayera a caballo entre dos páginas quedaba partida a la mitad (una mitad al final de
+ * una página, la otra mitad al principio de la siguiente).
+ *
+ * Ahora, si el corte "natural" (cursor + altoPagina) caería adentro de uno de los `bloques`
+ * protegidos (medidos por medirBloquesProtegidos() a partir de los elementos con
+ * data-pdf-bloque — ver ReporteSemanalAsociado.tsx), el corte se adelanta hasta el borde de
+ * ARRIBA de ese bloque en vez de partirlo: la página anterior termina con un poco de espacio en
+ * blanco de más, pero nada queda cortado a la mitad. `bloques` debe venir ordenado por `top`.
+ *
+ * Si un bloque protegido es más alto que una página entera completa (no debería pasar con el
+ * contenido actual de los informes, pero por seguridad), no hay forma de evitar cortarlo sin dejar
+ * páginas casi en blanco de por vida — en ese caso se usa el corte normal en vez de quedarse sin
+ * avanzar nunca.
+ */
+function calcularCortesDePagina(
+  altoImagen: number,
+  altoPagina: number,
+  bloques: { top: number; bottom: number }[],
+): number[] {
+  const cortes = [0]
+  let cursor = 0
+  while (altoImagen - cursor > altoPagina + 1 && cortes.length < MAXIMO_PAGINAS_PDF) {
+    let corte = cursor + altoPagina
+    const bloqueQueParte = bloques.find((b) => b.top > cursor + 0.5 && b.top < corte - 0.5 && b.bottom > corte + 0.5)
+    if (bloqueQueParte && bloqueQueParte.bottom - bloqueQueParte.top < altoPagina) {
+      corte = bloqueQueParte.top
+    }
+    cortes.push(corte)
+    cursor = corte
+  }
+  return cortes
+}
+
+/**
  * Arma un PDF tamaño carta con la imagen ya capturada, repartida en tantas páginas como haga
  * falta — jsPDF no reparte solo una imagen alta en varias páginas, así que se dibuja la MISMA
  * imagen completa una vez por página, corriéndola hacia arriba cada vez (posicionY más negativo)
  * para que cada página muestre el siguiente pedazo; lo que queda fuera del alto de esa página
  * simplemente no se ve, igual que si se hubiera recortado. El alias ('informe') le permite a
  * jsPDF reconocer que es la MISMA imagen en cada página, en vez de tratarla como una distinta
- * cada vez.
+ * cada vez. Las alturas donde arranca cada página ya no son siempre múltiplos de `altoPagina` —
+ * ver calcularCortesDePagina() sobre cómo se ajustan para no partir un bloque protegido.
  */
-async function crearPDFDesdeImagen(blob: Blob, anchoCSS: number, altoCSS: number): Promise<Blob> {
+async function crearPDFDesdeImagen(
+  blob: Blob,
+  anchoCSS: number,
+  altoCSS: number,
+  bloquesProtegidosCSS: { top: number; bottom: number }[],
+): Promise<Blob> {
   const dataUrlJPEG = await convertirAJPEG(blob)
 
   const pdf = new jsPDF({ unit: 'pt', format: 'letter' })
@@ -418,18 +480,19 @@ async function crearPDFDesdeImagen(blob: Blob, anchoCSS: number, altoCSS: number
   const altoImagen = (altoCSS / anchoCSS) * anchoPagina
   const ALIAS_IMAGEN = 'informe'
 
-  let posicionY = MARGEN_PDF_PT
-  let paginas = 1
-  pdf.addImage(dataUrlJPEG, 'JPEG', MARGEN_PDF_PT, posicionY, anchoPagina, altoImagen, ALIAS_IMAGEN)
+  // anchoPagina/anchoCSS: cuántos puntos de PDF equivale cada píxel CSS del clon capturado — la
+  // misma proporción que ya se usa para convertir el ancho/alto completos de la imagen.
+  const factorPt = anchoPagina / anchoCSS
+  const bloques = bloquesProtegidosCSS
+    .map((b) => ({ top: b.top * factorPt, bottom: b.bottom * factorPt }))
+    .sort((a, b) => a.top - b.top)
 
-  let restante = altoImagen - altoPagina
-  while (restante > 1 && paginas < MAXIMO_PAGINAS_PDF) {
-    posicionY -= altoPagina
-    pdf.addPage()
+  const cortes = calcularCortesDePagina(altoImagen, altoPagina, bloques)
+  cortes.forEach((corte, indice) => {
+    if (indice > 0) pdf.addPage()
+    const posicionY = MARGEN_PDF_PT - corte
     pdf.addImage(dataUrlJPEG, 'JPEG', MARGEN_PDF_PT, posicionY, anchoPagina, altoImagen, ALIAS_IMAGEN)
-    restante -= altoPagina
-    paginas += 1
-  }
+  })
 
   return pdf.output('blob')
 }
@@ -456,8 +519,8 @@ export async function generarArchivoPDF(
   nombreArchivo: string,
   alProgresar?: (mensaje: string) => void,
 ): Promise<File> {
-  const { blob, ancho, alto } = await capturarComoPNG(elemento, alProgresar)
+  const { blob, ancho, alto, bloquesProtegidos } = await capturarComoPNG(elemento, alProgresar)
   alProgresar?.('Armando PDF…')
-  const pdfBlob = await crearPDFDesdeImagen(blob, ancho, alto)
+  const pdfBlob = await crearPDFDesdeImagen(blob, ancho, alto, bloquesProtegidos)
   return new File([pdfBlob], nombreArchivo, { type: 'application/pdf' })
 }
