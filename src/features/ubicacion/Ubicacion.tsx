@@ -8,6 +8,18 @@ import { CampoCheckbox, CampoSelect, CampoTexto, SeccionFormulario } from '../..
 import { ubicacionSchema, type UbicacionFormInput, type UbicacionFormValues } from './ubicacionSchema'
 import type { Ubicacion as UbicacionModelo, Usuario } from '../../types/models'
 
+/**
+ * Igual que formatearDecimal() en src/features/recepcion/Recepcion.tsx — mismo problema, mismo
+ * arreglo: algunos celulares con teclado numérico en español no dejan escribir coma ni punto en un
+ * <input type="number"> nativo, así que este campo es type="text" con inputMode="decimal" y esta
+ * función normaliza a mano (coma -> punto, descarta lo demás, un solo separador).
+ */
+function formatearDecimal(valor: string): string {
+  const conPunto = valor.replace(/,/g, '.').replace(/[^\d.]/g, '')
+  const [entero, ...resto] = conPunto.split('.')
+  return resto.length > 0 ? `${entero}.${resto.join('')}` : entero
+}
+
 const VALORES_INICIALES: UbicacionFormInput = {
   RecepcionId: '',
   PesoPromedioPlanta: 0,
@@ -44,6 +56,10 @@ export function Ubicacion({ usuario }: { usuario: Usuario }) {
     resolver: zodResolver(ubicacionSchema),
     defaultValues: VALORES_INICIALES,
   })
+
+  // Aparte del spread normal de register(...) porque este campo necesita reformatear lo que la
+  // persona escribió ANTES de que react-hook-form lo guarde — ver formatearDecimal() arriba.
+  const registroPeso = register('PesoPromedioPlanta')
 
   async function onSubmit(valores: UbicacionFormValues) {
     setGuardando(true)
@@ -94,11 +110,16 @@ export function Ubicacion({ usuario }: { usuario: Usuario }) {
             </p>
           )}
           <CampoTexto
-            type="number"
-            step="0.1"
+            type="text"
+            inputMode="decimal"
+            placeholder="Ej: 120,15"
             etiqueta="Peso promedio en planta (kg)"
             requerido
-            {...register('PesoPromedioPlanta')}
+            {...registroPeso}
+            onChange={(e) => {
+              e.target.value = formatearDecimal(e.target.value)
+              void registroPeso.onChange(e)
+            }}
             error={errors.PesoPromedioPlanta?.message}
           />
           <CampoTexto
