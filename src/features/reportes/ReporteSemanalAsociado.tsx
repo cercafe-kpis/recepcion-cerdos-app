@@ -5,7 +5,7 @@ import {
   generarArchivoPDF,
   precargarLibreriaDeImagen,
 } from '../../utils/descargarImagen'
-import type { ConsolidadoTiquete, Recepcion } from '../../types/models'
+import type { ConsolidadoTiquete, NovedadCorral, Recepcion } from '../../types/models'
 
 const BASE = import.meta.env.BASE_URL
 
@@ -28,14 +28,20 @@ function contarReposo(tiquetes: ConsolidadoTiquete[]): number {
   return tiquetes.filter((t) => t.TipoNovedad === 'Muerto en Reposo').length
 }
 
-function sumarStats(base: StatsNovedad, r: Recepcion, cantReposo: number): StatsNovedad {
+// Agitados/Caídos/Lesionados suman DOS orígenes (a pedido del usuario, para no alterar el
+// formato del PDF de referencia con columnas nuevas): lo capturado en Recepción ("Novedad de
+// llegada") más lo capturado después en Ubicación/Novedades en Corral ("Novedad en corral" —
+// novedadCorral, opcional porque una Recepción puede no tener todavía ese registro). Se usa el
+// total crudo de cada uno (Cant..., no el de Benef.Emergencia), igual que ya se hacía con el
+// total crudo de Novedad de llegada.
+function sumarStats(base: StatsNovedad, r: Recepcion, cantReposo: number, novedadCorral: NovedadCorral | undefined): StatsNovedad {
   return {
     fortuitoTransporte: base.fortuitoTransporte + (r.FortuitoCantMuertoTransporte ?? 0),
     fortuitoDesembarque: base.fortuitoDesembarque + (r.FortuitoCantMuertoDesembarque ?? 0),
     fortuitoReposo: base.fortuitoReposo + cantReposo,
-    agitados: base.agitados + (r.NovLlegadaCantAgitados ?? 0),
-    caidos: base.caidos + (r.NovLlegadaCantCaidos ?? 0),
-    lesionados: base.lesionados + (r.NovLlegadaCantLesionados ?? 0),
+    agitados: base.agitados + (r.NovLlegadaCantAgitados ?? 0) + (novedadCorral?.CorralCantAgitados ?? 0),
+    caidos: base.caidos + (r.NovLlegadaCantCaidos ?? 0) + (novedadCorral?.CorralCantCaidos ?? 0),
+    lesionados: base.lesionados + (r.NovLlegadaCantLesionados ?? 0) + (novedadCorral?.CorralCantLesionados ?? 0),
   }
 }
 
@@ -119,6 +125,11 @@ const claseBadge =
  *
  * Trae sus propios botones "Descargar imagen" y "Descargar / Compartir PDF" (mismo patrón que
  * ReporteDiarioLote.tsx) — quien lo usa no necesita armar esos botones aparte.
+ *
+ * `novedadCorralPorRecepcion` complementa a `tiquetesPorRecepcion`: trae, por cada Recepción, su
+ * registro de NovedadCorral (Lesionado/Caído/Agitado capturados después en Ubicación/Novedades en
+ * Corral), para sumarlo al de Novedad de llegada en las mismas columnas de Agitados/Caídos/
+ * Lesionados (ver sumarStats), igual que ya se hacía con Fortuito en reposo.
  */
 export function ReporteSemanalAsociado({
   nombreEncabezado,
@@ -126,6 +137,7 @@ export function ReporteSemanalAsociado({
   hasta,
   recepciones,
   tiquetesPorRecepcion,
+  novedadCorralPorRecepcion,
   mapaGranjas,
   mapaVehiculos,
 }: {
@@ -134,6 +146,7 @@ export function ReporteSemanalAsociado({
   hasta: string
   recepciones: Recepcion[]
   tiquetesPorRecepcion: Record<string, ConsolidadoTiquete[]>
+  novedadCorralPorRecepcion: Record<string, NovedadCorral>
   mapaGranjas: Map<string, { Title: string }>
   mapaVehiculos: Map<string, { Title: string }>
 }) {
@@ -167,11 +180,12 @@ export function ReporteSemanalAsociado({
     for (const r of recepciones) {
       animales += r.NumeroTotalCerdos
       const cantReposo = contarReposo(r.spId ? (tiquetesPorRecepcion[r.spId] ?? []) : [])
-      stats = sumarStats(stats, r, cantReposo)
+      const novedadCorral = r.spId ? novedadCorralPorRecepcion[r.spId] : undefined
+      stats = sumarStats(stats, r, cantReposo, novedadCorral)
     }
     const porcentaje = animales > 0 ? (totalNovedades(stats) / animales) * 100 : 0
     return { animales, stats, porcentaje, lotes: recepciones.length }
-  }, [recepciones, tiquetesPorRecepcion])
+  }, [recepciones, tiquetesPorRecepcion, novedadCorralPorRecepcion])
 
   const porGranja = useMemo(() => {
     const mapa = new Map<string, { nombre: string; lotes: number; animales: number; stats: StatsNovedad }>()
@@ -179,14 +193,15 @@ export function ReporteSemanalAsociado({
       const granjaId = r.GranjaId || '__sin-granja__'
       const nombre = mapaGranjas.get(r.GranjaId)?.Title ?? 'Sin granja'
       const cantReposo = contarReposo(r.spId ? (tiquetesPorRecepcion[r.spId] ?? []) : [])
+      const novedadCorral = r.spId ? novedadCorralPorRecepcion[r.spId] : undefined
       const actual = mapa.get(granjaId) ?? { nombre, lotes: 0, animales: 0, stats: statsVacias() }
       actual.lotes += 1
       actual.animales += r.NumeroTotalCerdos
-      actual.stats = sumarStats(actual.stats, r, cantReposo)
+      actual.stats = sumarStats(actual.stats, r, cantReposo, novedadCorral)
       mapa.set(granjaId, actual)
     }
     return Array.from(mapa.values()).sort((a, b) => a.nombre.localeCompare(b.nombre))
-  }, [recepciones, tiquetesPorRecepcion, mapaGranjas])
+  }, [recepciones, tiquetesPorRecepcion, novedadCorralPorRecepcion, mapaGranjas])
 
   const porVehiculo = useMemo(() => {
     const mapa = new Map<string, { placa: string; lotes: number; animales: number; granjas: Set<string>; stats: StatsNovedad }>()
@@ -195,17 +210,18 @@ export function ReporteSemanalAsociado({
       const placa = mapaVehiculos.get(r.PlacaVehiculoId)?.Title ?? 'Sin placa'
       const granjaNombre = mapaGranjas.get(r.GranjaId)?.Title ?? 'Sin granja'
       const cantReposo = contarReposo(r.spId ? (tiquetesPorRecepcion[r.spId] ?? []) : [])
+      const novedadCorral = r.spId ? novedadCorralPorRecepcion[r.spId] : undefined
       const actual = mapa.get(vehId) ?? { placa, lotes: 0, animales: 0, granjas: new Set<string>(), stats: statsVacias() }
       actual.lotes += 1
       actual.animales += r.NumeroTotalCerdos
       actual.granjas.add(granjaNombre)
-      actual.stats = sumarStats(actual.stats, r, cantReposo)
+      actual.stats = sumarStats(actual.stats, r, cantReposo, novedadCorral)
       mapa.set(vehId, actual)
     }
     return Array.from(mapa.values())
       .filter((v) => totalNovedades(v.stats) > 0)
       .sort((a, b) => totalNovedades(b.stats) - totalNovedades(a.stats))
-  }, [recepciones, tiquetesPorRecepcion, mapaGranjas, mapaVehiculos])
+  }, [recepciones, tiquetesPorRecepcion, novedadCorralPorRecepcion, mapaGranjas, mapaVehiculos])
 
   const detalle = useMemo(
     () =>
@@ -455,6 +471,10 @@ export function ReporteSemanalAsociado({
               </div>
               {detalle.map((r, i) => {
                 const cantReposo = contarReposo(r.spId ? (tiquetesPorRecepcion[r.spId] ?? []) : [])
+                const novedadCorral = r.spId ? novedadCorralPorRecepcion[r.spId] : undefined
+                const agitados = (r.NovLlegadaCantAgitados ?? 0) + (novedadCorral?.CorralCantAgitados ?? 0)
+                const caidos = (r.NovLlegadaCantCaidos ?? 0) + (novedadCorral?.CorralCantCaidos ?? 0)
+                const lesionados = (r.NovLlegadaCantLesionados ?? 0) + (novedadCorral?.CorralCantLesionados ?? 0)
                 return (
                   <div key={r.id} className={`flex border-t border-slate-200 ${i % 2 === 1 ? 'bg-purple-50/30' : 'bg-white'}`}>
                     <div className="flex-1 px-1 py-1.5">{fechaCorta(r.FechaRecepcion)}</div>
@@ -467,9 +487,9 @@ export function ReporteSemanalAsociado({
                       <CeldaCantidad valor={r.FortuitoCantMuertoDesembarque} />
                       <CeldaCantidad valor={cantReposo} />
                     </div>
-                    <CeldaCantidad valor={r.NovLlegadaCantAgitados} />
-                    <CeldaCantidad valor={r.NovLlegadaCantCaidos} />
-                    <CeldaCantidad valor={r.NovLlegadaCantLesionados} />
+                    <CeldaCantidad valor={agitados} />
+                    <CeldaCantidad valor={caidos} />
+                    <CeldaCantidad valor={lesionados} />
                   </div>
                 )
               })}
