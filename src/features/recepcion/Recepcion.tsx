@@ -22,6 +22,37 @@ function combinarFechaHora(fecha: string, hora: string): string {
   return `${fecha}T${hora}:00-05:00`
 }
 
+/**
+ * Fuerza el formato "3 cifras - resto" mientras la persona escribe (ej.
+ * "026-445555552"): se queda solo con los dígitos que ya escribió y vuelve a
+ * armar el guion en la posición correcta, así que no importa si pegó el
+ * número completo, si el teclado le puso algo raro, o si intenta borrar el
+ * guion — siempre queda bien. El backstop final es la validación por regex
+ * en recepcionSchema.ts.
+ */
+function formatearGuiaICA(valor: string): string {
+  const soloDigitos = valor.replace(/\D/g, '')
+  const prefijo = soloDigitos.slice(0, 3)
+  const resto = soloDigitos.slice(3)
+  return resto ? `${prefijo}-${resto}` : prefijo
+}
+
+/**
+ * Normaliza lo que la persona escribe como peso en kg para que acepte coma o
+ * punto como separador decimal (ej. "120,15" o "120.15") — algunos celulares
+ * con teclado numérico en español no dejan escribir la coma ni el punto en un
+ * <input type="number"> nativo, por eso este campo es type="text" con
+ * inputMode="decimal" y esta función hace la limpieza a mano: cambia coma por
+ * punto, quita cualquier otro caracter que no sea dígito o punto, y si queda
+ * más de un punto (por ejemplo al pegar texto raro) se queda solo con el
+ * primero. z.coerce.number() en recepcionSchema.ts hace el resto al guardar.
+ */
+function formatearDecimal(valor: string): string {
+  const conPunto = valor.replace(/,/g, '.').replace(/[^\d.]/g, '')
+  const [entero, ...resto] = conPunto.split('.')
+  return resto.length > 0 ? `${entero}.${resto.join('')}` : entero
+}
+
 const VALORES_INICIALES: RecepcionFormInput = {
   Consecutivo: '',
   NumeroOrden: '',
@@ -36,7 +67,7 @@ const VALORES_INICIALES: RecepcionFormInput = {
   PesoPromedioGranja: 0,
   PlacaVehiculoId: '',
   GuiaSanitariaICA: '',
-  RemisionGranja: '',
+  RemisionGranja: 'No',
   QRLote: false,
   CertificadoInmunocastracion: false,
   CoincideGuiaICAvsQR: false,
@@ -81,6 +112,12 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
     resolver: zodResolver(recepcionSchema),
     defaultValues: VALORES_INICIALES,
   })
+
+  // Se capturan aparte (en vez de solo hacer spread de register(...) en el <input>) porque estos
+  // dos campos necesitan reformatear lo que la persona escribió ANTES de que react-hook-form lo
+  // guarde — ver formatearGuiaICA() y formatearDecimal() arriba.
+  const registroGuiaICA = register('GuiaSanitariaICA')
+  const registroPeso = register('PesoPromedioGranja')
 
   const asociadoSeleccionado = watch('AsociadoId')
   const granjasDelAsociado = useMemo(
@@ -162,7 +199,19 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
             opciones={vehiculos.map((v) => ({ value: v.id, label: v.Title }))}
           />
           <CampoTexto type="number" step="1" etiqueta="Número total de cerdos" requerido {...register('NumeroTotalCerdos')} error={errors.NumeroTotalCerdos?.message} />
-          <CampoTexto type="number" step="0.1" etiqueta="Peso promedio en granja (kg)" requerido {...register('PesoPromedioGranja')} error={errors.PesoPromedioGranja?.message} />
+          <CampoTexto
+            type="text"
+            inputMode="decimal"
+            placeholder="Ej: 120,15"
+            etiqueta="Peso promedio en granja (kg)"
+            requerido
+            {...registroPeso}
+            onChange={(e) => {
+              e.target.value = formatearDecimal(e.target.value)
+              void registroPeso.onChange(e)
+            }}
+            error={errors.PesoPromedioGranja?.message}
+          />
           <CampoSelect
             etiqueta="Suciedad de los cerdos"
             requerido
@@ -176,8 +225,28 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
         </SeccionFormulario>
 
         <SeccionFormulario titulo="Documentos">
-          <CampoTexto etiqueta="Guía sanitaria ICA" requerido {...register('GuiaSanitariaICA')} error={errors.GuiaSanitariaICA?.message} />
-          <CampoTexto etiqueta="Remisión de granja" requerido {...register('RemisionGranja')} error={errors.RemisionGranja?.message} />
+          <CampoTexto
+            inputMode="numeric"
+            placeholder="026-445555552"
+            etiqueta="Guía sanitaria ICA"
+            requerido
+            {...registroGuiaICA}
+            onChange={(e) => {
+              e.target.value = formatearGuiaICA(e.target.value)
+              void registroGuiaICA.onChange(e)
+            }}
+            error={errors.GuiaSanitariaICA?.message}
+          />
+          <CampoSelect
+            etiqueta="Remisión de granja"
+            requerido
+            {...register('RemisionGranja')}
+            error={errors.RemisionGranja?.message}
+            opciones={[
+              { value: 'Sí', label: 'Sí' },
+              { value: 'No', label: 'No' },
+            ]}
+          />
           <CampoCheckbox etiqueta="Tiene QR de lote" {...register('QRLote')} />
           <CampoCheckbox etiqueta="Tiene certificado de inmunocastración" {...register('CertificadoInmunocastracion')} />
           <CampoCheckbox etiqueta="La guía ICA coincide con el QR" {...register('CoincideGuiaICAvsQR')} />
