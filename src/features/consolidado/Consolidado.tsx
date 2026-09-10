@@ -13,7 +13,7 @@ import {
 } from '../../graph/lists'
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { ReporteDiarioLote } from '../reportes/ReporteDiarioLote'
-import type { ConsolidadoTiquete, Destino, Usuario } from '../../types/models'
+import type { ConsolidadoTiquete, Destino, NovedadCorral, Usuario } from '../../types/models'
 
 /**
  * El objetivo de todo el flujo (Recepción → Ubicación/Novedades en Corral →
@@ -34,6 +34,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [buscando, setBuscando] = useState(false)
   const [error, setError] = useState<string>()
   const [verReporteInmediato, setVerReporteInmediato] = useState(false)
+  const [novedadCorral, setNovedadCorral] = useState<NovedadCorral>()
   const esAdmin = usuario.Rol === 'Administrador'
 
   const recepciones =
@@ -70,6 +71,17 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   useEffect(() => {
     if (recepcion?.spId && navigator.onLine) {
       void cachearTiquetesDeRecepcion(recepcion.spId)
+    }
+  }, [recepcion?.spId])
+
+  // Trae la Novedad en Corral (Lesionado/Caído/Agitado capturados en Ubicación/Novedades en
+  // Corral) directo de Graph, para el "reporte inmediato" de abajo — igual que
+  // regenerarTiquetes() más abajo, no se guarda en Dexie: solo hace falta para mostrarla en el
+  // reporte de este lote en pantalla.
+  useEffect(() => {
+    setNovedadCorral(undefined)
+    if (recepcion?.spId && navigator.onLine) {
+      void obtenerNovedadCorralDeRecepcion(recepcion.spId).then(setNovedadCorral)
     }
   }, [recepcion?.spId])
 
@@ -342,6 +354,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                     granjaNombre={granja?.Title ?? '—'}
                     placa={vehiculo?.Title ?? '—'}
                     tiquetes={tiquetes}
+                    novedadCorral={novedadCorral}
                   />
                 </div>
               )}
