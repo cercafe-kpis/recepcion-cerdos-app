@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { db } from '../../offline/db'
-import { listarRecepcionesPorRangoFecha, listarTiquetesDeRecepcion } from '../../graph/lists'
+import { listarRecepcionesPorRangoFecha, listarTiquetesDeRecepcion, obtenerNovedadCorralDeRecepcion } from '../../graph/lists'
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { ReporteDiarioLote } from './ReporteDiarioLote'
 import { ReporteSemanalAsociado } from './ReporteSemanalAsociado'
-import type { ConsolidadoTiquete, Recepcion } from '../../types/models'
+import type { ConsolidadoTiquete, NovedadCorral, Recepcion } from '../../types/models'
 
 function hoyISO() {
   return new Date().toISOString().slice(0, 10)
@@ -106,6 +106,7 @@ function ReporteDiario({ mapaVehiculos }: { mapaVehiculos: Map<string, { Title: 
   const [generado, setGenerado] = useState(false)
   const [recepciones, setRecepciones] = useState<Recepcion[]>([])
   const [tiquetesPorRecepcion, setTiquetesPorRecepcion] = useState<Record<string, ConsolidadoTiquete[]>>({})
+  const [novedadCorralPorRecepcion, setNovedadCorralPorRecepcion] = useState<Record<string, NovedadCorral>>({})
 
   const asociados = useLiveQuery(() => db.asociados.toArray(), []) ?? []
   const granjas = useLiveQuery(() => db.granjas.toArray(), []) ?? []
@@ -120,14 +121,18 @@ function ReporteDiario({ mapaVehiculos }: { mapaVehiculos: Map<string, { Title: 
       const traidas = await listarRecepcionesPorRangoFecha(fecha, fecha)
       traidas.sort((a, b) => a.Consecutivo.localeCompare(b.Consecutivo))
       const porRecepcion: Record<string, ConsolidadoTiquete[]> = {}
+      const novedadCorralPorRec: Record<string, NovedadCorral> = {}
       await Promise.all(
         traidas.map(async (r) => {
           if (!r.spId) return
           porRecepcion[r.spId] = await listarTiquetesDeRecepcion(r.spId)
+          const novedad = await obtenerNovedadCorralDeRecepcion(r.spId)
+          if (novedad) novedadCorralPorRec[r.spId] = novedad
         }),
       )
       setRecepciones(traidas)
       setTiquetesPorRecepcion(porRecepcion)
+      setNovedadCorralPorRecepcion(novedadCorralPorRec)
       setGenerado(true)
     } catch (err) {
       setError(`No se pudo generar el reporte: ${(err as Error).message}`)
@@ -174,6 +179,7 @@ function ReporteDiario({ mapaVehiculos }: { mapaVehiculos: Map<string, { Title: 
                   granjaNombre={mapaGranjas.get(r.GranjaId)?.Title ?? '—'}
                   placa={mapaVehiculos.get(r.PlacaVehiculoId)?.Title ?? '—'}
                   tiquetes={r.spId ? (tiquetesPorRecepcion[r.spId] ?? []) : []}
+                  novedadCorral={r.spId ? novedadCorralPorRecepcion[r.spId] : undefined}
                 />
               ))}
             </div>
@@ -203,6 +209,7 @@ function ReporteSemanal({
   const [generado, setGenerado] = useState(false)
   const [recepciones, setRecepciones] = useState<Recepcion[]>([])
   const [tiquetesPorRecepcion, setTiquetesPorRecepcion] = useState<Record<string, ConsolidadoTiquete[]>>({})
+  const [novedadCorralPorRecepcion, setNovedadCorralPorRecepcion] = useState<Record<string, NovedadCorral>>({})
 
   async function generar() {
     if (!grupoAsociadoId) return
@@ -212,14 +219,18 @@ function ReporteSemanal({
     try {
       const traidas = await listarRecepcionesPorRangoFecha(desde, hasta)
       const porRecepcion: Record<string, ConsolidadoTiquete[]> = {}
+      const novedadCorralPorRec: Record<string, NovedadCorral> = {}
       await Promise.all(
         traidas.map(async (r) => {
           if (!r.spId) return
           porRecepcion[r.spId] = await listarTiquetesDeRecepcion(r.spId)
+          const novedad = await obtenerNovedadCorralDeRecepcion(r.spId)
+          if (novedad) novedadCorralPorRec[r.spId] = novedad
         }),
       )
       setRecepciones(traidas)
       setTiquetesPorRecepcion(porRecepcion)
+      setNovedadCorralPorRecepcion(novedadCorralPorRec)
       setGenerado(true)
     } catch (err) {
       setError(`No se pudo generar el reporte: ${(err as Error).message}`)
@@ -294,6 +305,7 @@ function ReporteSemanal({
                 hasta={hasta}
                 recepciones={recepcionesDelGrupo}
                 tiquetesPorRecepcion={tiquetesPorRecepcion}
+                novedadCorralPorRecepcion={novedadCorralPorRecepcion}
                 mapaGranjas={mapaGranjas}
                 mapaVehiculos={mapaVehiculos}
               />
