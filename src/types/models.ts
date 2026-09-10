@@ -197,7 +197,7 @@ export type TipoNovedad =
   | 'Lesionado'
   | 'Caído'
   | 'Agitado'
-export type Destino = 'Procesado' | 'Decomisado'
+export type Destino = 'Procesado' | 'Decomisado' | 'Decomisado en canal'
 export type EstadoTiquete = 'Pendiente' | 'Completo'
 
 export interface ConsolidadoTiquete extends CapturaOffline {
