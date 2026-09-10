@@ -605,14 +605,27 @@ export async function obtenerNovedadCorralDeRecepcion(recepcionSpId: string): Pr
   const item = items[0]
   if (!item) return undefined
   const f = item.fields
+  const numeroOpcional = (valor: unknown) => (valor === undefined || valor === null ? undefined : Number(valor))
   return {
     id: item.id,
     spId: item.id,
     RecepcionId: String(f.RecepcionId ?? ''),
     MuertoReposo: Boolean(f.MuertoReposo),
-    CantMuertoReposo: f.CantMuertoReposo === undefined || f.CantMuertoReposo === null ? undefined : Number(f.CantMuertoReposo),
+    CantMuertoReposo: numeroOpcional(f.CantMuertoReposo),
     ComportamientoSexual: Boolean(f.ComportamientoSexual),
     DisponibilidadAgua: Boolean(f.DisponibilidadAgua),
+    CorralLesionados: Boolean(f.CorralLesionados),
+    CorralCantLesionados: numeroOpcional(f.CorralCantLesionados),
+    CorralLesionadosBenefEmerg: Boolean(f.CorralLesionadosBenefEmerg),
+    CorralCantLesionadosBenefEmerg: numeroOpcional(f.CorralCantLesionadosBenefEmerg),
+    CorralCaidos: Boolean(f.CorralCaidos),
+    CorralCantCaidos: numeroOpcional(f.CorralCantCaidos),
+    CorralCaidosBenefEmerg: Boolean(f.CorralCaidosBenefEmerg),
+    CorralCantCaidosBenefEmerg: numeroOpcional(f.CorralCantCaidosBenefEmerg),
+    CorralAgitados: Boolean(f.CorralAgitados),
+    CorralCantAgitados: numeroOpcional(f.CorralCantAgitados),
+    CorralAgitadosBenefEmerg: Boolean(f.CorralAgitadosBenefEmerg),
+    CorralCantAgitadosBenefEmerg: numeroOpcional(f.CorralCantAgitadosBenefEmerg),
     EstadoSync: 'Sincronizada',
     CapturadaEn: f.CapturadaEn ? String(f.CapturadaEn) : '',
     RecibidaEn: f.RecibidaEn ? String(f.RecibidaEn) : undefined,
@@ -634,7 +647,7 @@ export async function listarTiquetesDeRecepcion(recepcionId: string): Promise<Co
   )
   // A diferencia de Recepcion/Ubicacion/NovedadCorral, estas filas nunca se
   // capturan sin conexión: las crea el propio proceso de sync
-  // (generarTiquetesFaltantes / generarTiqueteMuertoReposo), así que `id` y
+  // (generarTiquetesFaltantes / generarTiquetesNovedadCorral), así que `id` y
   // `spId` son el mismo id real de SharePoint desde el primer momento.
   return items.map((item) => ({
     id: item.id,
@@ -679,6 +692,14 @@ export async function actualizarTiquete(
  * beneficiar de emergencia (ver el checkbox correspondiente en Recepcion.tsx
  * y el comentario en models.ts). El total reportado solo se usa para
  * mostrarlo en el reporte diario por lote (ReporteDiarioLote.tsx).
+ *
+ * Muerto en Reposo y la Novedad en Corral (Lesionado/Caído/Agitado ocurridos DESPUÉS de la llegada,
+ * agregada 2026-09-10) vienen de NovedadCorral, no de Recepcion — se generan con
+ * generarTiquetesNovedadCorral(), más abajo, desde el mismo tipo de llamada cuando esa lista
+ * sincroniza (ver src/offline/syncService.ts). Nótese que "Lesionado"/"Caído"/"Agitado" como
+ * TipoNovedad puede entonces existir dos veces para el mismo lote, una vez con GrupoNovedad
+ * "Novedad de llegada" (aquí) y otra con "Novedad en corral" (allá) — por eso el conteo de abajo
+ * filtra por grupo Y tipo, nunca solo por tipo, para no mezclar la numeración de las dos series.
  */
 export async function generarTiquetesFaltantes(recepcion: Recepcion): Promise<void> {
   if (!recepcion.spId) {
@@ -696,14 +717,11 @@ export async function generarTiquetesFaltantes(recepcion: Recepcion): Promise<vo
     { grupo: 'Novedad de llegada', tipo: 'Agitado', cantidad: recepcion.NovLlegadaCantAgitadosBeneficioEmergencia },
     { grupo: 'Fortuito', tipo: 'Muerto en Transporte', cantidad: recepcion.FortuitoCantMuertoTransporte },
     { grupo: 'Fortuito', tipo: 'Muerto en Desembarque', cantidad: recepcion.FortuitoCantMuertoDesembarque },
-    // Muerto en Reposo viene de NovedadCorral, no de Recepcion — se genera
-    // desde el mismo tipo de llamada cuando esa lista sincroniza (ver
-    // src/offline/syncService.ts).
   ]
 
   for (const origen of origenes) {
     const cantidad = origen.cantidad ?? 0
-    const yaCreados = existentes.filter((t) => t.TipoNovedad === origen.tipo).length
+    const yaCreados = existentes.filter((t) => t.TipoNovedad === origen.tipo && t.GrupoNovedad === origen.grupo).length
     for (let n = yaCreados + 1; n <= cantidad; n++) {
       await createItem('ConsolidadoTiquetes', {
         // SharePoint trae por defecto la columna Title como obligatoria en
@@ -730,33 +748,55 @@ export async function generarTiquetesFaltantes(recepcion: Recepcion): Promise<vo
 }
 
 /**
- * Contraparte de generarTiquetesFaltantes() para la novedad "Muerto en
- * Reposo", cuya cantidad vive en NovedadCorral y no en Recepcion (ver el
- * comentario dentro de generarTiquetesFaltantes). Se llama justo después de
- * sincronizar una NovedadCorral, con la Recepción padre ya sincronizada.
+ * Contraparte de generarTiquetesFaltantes() para las novedades que vienen de NovedadCorral en vez
+ * de Recepcion: "Muerto en Reposo" (de siempre) y, desde 2026-09-10, "Novedad en corral"
+ * (Lesionado/Caído/Agitado que ocurren DESPUÉS de la llegada, capturados en NovedadesCorral.tsx —
+ * ver el comentario grande junto a esos campos en models.ts). Se llama justo después de sincronizar
+ * una NovedadCorral, con la Recepción padre ya sincronizada.
+ *
+ * Igual que con las novedades de llegada, para Lesionado/Caído/Agitado en corral la Cantidad que
+ * cuenta es la de BENEFICIO DE EMERGENCIA, no el total reportado — un animal que se recupera no
+ * necesita tiquete. Se llamaba generarTiqueteMuertoReposo() antes de agregar estas 3; se renombró
+ * al ampliarla en vez de agregar una función aparte, porque los 4 orígenes se generan siempre desde
+ * el mismo NovedadCorral y en los mismos 2 puntos de llamada (syncService.ts y el botón "Volver a
+ * generar tiquetes" en Consolidado.tsx).
  */
-export async function generarTiqueteMuertoReposo(
+export async function generarTiquetesNovedadCorral(
   novedad: NovedadCorral,
   recepcion: Pick<Recepcion, 'spId' | 'Consecutivo'>,
 ): Promise<void> {
   if (!recepcion.spId) {
-    throw new Error('generarTiqueteMuertoReposo requiere una Recepción ya sincronizada (con spId)')
+    throw new Error('generarTiquetesNovedadCorral requiere una Recepción ya sincronizada (con spId)')
   }
-  const cantidad = novedad.CantMuertoReposo ?? 0
-  if (cantidad <= 0) return
-
   const existentes = await listarTiquetesDeRecepcion(recepcion.spId)
-  const yaCreados = existentes.filter((t) => t.TipoNovedad === 'Muerto en Reposo').length
-  for (let n = yaCreados + 1; n <= cantidad; n++) {
-    await createItem('ConsolidadoTiquetes', {
-      Title: `${recepcion.Consecutivo} · Muerto en Reposo #${n}`,
-      RecepcionId: recepcion.spId,
-      GrupoNovedad: 'Fortuito',
-      TipoNovedad: 'Muerto en Reposo',
-      NumeroAnimalEnLote: n,
-      EstadoTiquete: 'Pendiente',
-      EstadoSync: 'Sincronizada',
-      CapturadaEn: new Date().toISOString(),
-    })
+
+  const origenes: Array<{
+    grupo: ConsolidadoTiquete['GrupoNovedad']
+    tipo: ConsolidadoTiquete['TipoNovedad']
+    cantidad: number | undefined
+  }> = [
+    { grupo: 'Fortuito', tipo: 'Muerto en Reposo', cantidad: novedad.CantMuertoReposo },
+    { grupo: 'Novedad en corral', tipo: 'Lesionado', cantidad: novedad.CorralCantLesionadosBenefEmerg },
+    { grupo: 'Novedad en corral', tipo: 'Caído', cantidad: novedad.CorralCantCaidosBenefEmerg },
+    { grupo: 'Novedad en corral', tipo: 'Agitado', cantidad: novedad.CorralCantAgitadosBenefEmerg },
+  ]
+
+  for (const origen of origenes) {
+    const cantidad = origen.cantidad ?? 0
+    // Filtra por grupo Y tipo (no solo tipo) — ver el comentario en generarTiquetesFaltantes()
+    // sobre por qué "Lesionado"/"Caído"/"Agitado" puede existir con dos GrupoNovedad distintos.
+    const yaCreados = existentes.filter((t) => t.TipoNovedad === origen.tipo && t.GrupoNovedad === origen.grupo).length
+    for (let n = yaCreados + 1; n <= cantidad; n++) {
+      await createItem('ConsolidadoTiquetes', {
+        Title: `${recepcion.Consecutivo} · ${origen.tipo} #${n}`,
+        RecepcionId: recepcion.spId,
+        GrupoNovedad: origen.grupo,
+        TipoNovedad: origen.tipo,
+        NumeroAnimalEnLote: n,
+        EstadoTiquete: 'Pendiente',
+        EstadoSync: 'Sincronizada',
+        CapturadaEn: new Date().toISOString(),
+      })
+    }
   }
 }
