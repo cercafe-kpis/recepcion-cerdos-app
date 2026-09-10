@@ -13,6 +13,12 @@ const VALORES_INICIALES: NovedadCorralFormInput = {
   MuertoReposo: false,
   ComportamientoSexual: false,
   DisponibilidadAgua: true,
+  CorralLesionados: false,
+  CorralLesionadosBenefEmerg: false,
+  CorralCaidos: false,
+  CorralCaidosBenefEmerg: false,
+  CorralAgitados: false,
+  CorralAgitadosBenefEmerg: false,
 }
 
 /** Sigue el mismo patrón que src/features/recepcion/Recepcion.tsx — ver los comentarios allí. */
@@ -106,6 +112,69 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
           </div>
           <CampoCheckbox etiqueta="Comportamiento sexual atípico" {...register('ComportamientoSexual')} />
           <CampoCheckbox etiqueta="Hay disponibilidad de agua" {...register('DisponibilidadAgua')} />
+        </SeccionFormulario>
+
+        {/* Mismo patrón que "Novedad de llegada" en src/features/recepcion/Recepcion.tsx: checkbox +
+            cantidad, y si hubo alguno que no se recuperó y tocó beneficiar de emergencia, checkbox +
+            cantidad de eso también — esa segunda cantidad es la que genera tiquete en Consolidado
+            (ver generarTiquetesNovedadCorral() en src/graph/lists.ts), con GrupoNovedad "Novedad en
+            corral" para distinguirlo de una novedad reportada en Recepción. sm:col-span-2 por la
+            misma razón que allá: evita que dos novedades expandidas queden visualmente pegadas. */}
+        <SeccionFormulario titulo="Novedad en corral">
+          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
+            <CampoCheckbox etiqueta="Lesionado" {...register('CorralLesionados')} />
+            {watch('CorralLesionados') && (
+              <>
+                <CampoTexto type="number" step="1" etiqueta="Cantidad lesionados" {...register('CorralCantLesionados')} error={errors.CorralCantLesionados?.message} />
+                <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia por la lesión? (no se recuperó)" {...register('CorralLesionadosBenefEmerg')} />
+                {watch('CorralLesionadosBenefEmerg') && (
+                  <CampoTexto
+                    type="number"
+                    step="1"
+                    etiqueta="Cantidad beneficiados de emergencia por lesión"
+                    {...register('CorralCantLesionadosBenefEmerg')}
+                    error={errors.CorralCantLesionadosBenefEmerg?.message}
+                  />
+                )}
+              </>
+            )}
+          </div>
+          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
+            <CampoCheckbox etiqueta="Caído" {...register('CorralCaidos')} />
+            {watch('CorralCaidos') && (
+              <>
+                <CampoTexto type="number" step="1" etiqueta="Cantidad caídos" {...register('CorralCantCaidos')} error={errors.CorralCantCaidos?.message} />
+                <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia por la caída? (no se recuperó)" {...register('CorralCaidosBenefEmerg')} />
+                {watch('CorralCaidosBenefEmerg') && (
+                  <CampoTexto
+                    type="number"
+                    step="1"
+                    etiqueta="Cantidad beneficiados de emergencia por caída"
+                    {...register('CorralCantCaidosBenefEmerg')}
+                    error={errors.CorralCantCaidosBenefEmerg?.message}
+                  />
+                )}
+              </>
+            )}
+          </div>
+          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
+            <CampoCheckbox etiqueta="Agitado" {...register('CorralAgitados')} />
+            {watch('CorralAgitados') && (
+              <>
+                <CampoTexto type="number" step="1" etiqueta="Cantidad agitados" {...register('CorralCantAgitados')} error={errors.CorralCantAgitados?.message} />
+                <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia por estar agitado? (no se recuperó)" {...register('CorralAgitadosBenefEmerg')} />
+                {watch('CorralAgitadosBenefEmerg') && (
+                  <CampoTexto
+                    type="number"
+                    step="1"
+                    etiqueta="Cantidad beneficiados de emergencia por agitación"
+                    {...register('CorralCantAgitadosBenefEmerg')}
+                    error={errors.CorralCantAgitadosBenefEmerg?.message}
+                  />
+                )}
+              </>
+            )}
+          </div>
         </SeccionFormulario>
 
         <button
