@@ -383,50 +383,45 @@ const MARGEN_PDF_PT = 24
 const MAXIMO_PAGINAS_PDF = 40
 
 /** Calidad del JPEG (0 a 1) con el que se mete el informe dentro del PDF — ver el comentario de
- * convertirAJPEG() sobre por qué es imprescindible convertir a JPEG antes, y no meter el PNG tal
+ * recortarComoJPEG() sobre por qué es imprescindible convertir a JPEG antes, y no meter el PNG tal
  * cual. 0.85 es un punto medio de sobra para texto y tablas: se nota MUCHO menos que la
  * diferencia de peso del archivo. */
 const CALIDAD_JPEG_PDF = 0.85
 
 /**
- * Convierte el PNG ya capturado a JPEG antes de meterlo en el PDF. Esto no es una optimización
- * menor: se probó primero metiendo el PNG directo (con jsPDF addImage(..., 'PNG', ...)) y el PDF
- * de un informe semanal normal salía pesando DECENAS DE MEGABYTES — jsPDF, con imágenes PNG, las
- * guarda adentro del PDF como mapa de bits SIN comprimir (cada píxel tal cual, sin aprovechar que
- * la imagen es en su mayoría fondo blanco), así que el peso final termina siendo básicamente
- * ancho × alto × 3 bytes por píxel. Con JPEG en cambio jsPDF sí aprovecha la compresión que ya
- * trae el propio archivo JPEG y lo mete casi tal cual — un informe de prueba de varias páginas
- * pasó de más de 40 MB a apenas un poco más de 100 KB. Un PDF de decenas de MB, además de lento
- * de generar en un celular, se puede quedar pegado o fallar al intentar compartirlo por WhatsApp.
- * JPEG no admite fondos transparentes, pero el informe siempre se captura sobre fondo blanco
- * (bgcolor: '#ffffff' en capturarComoPNG), así que no hay nada que se pierda visualmente.
+ * Recorta del bitmap ya capturado solo la franja vertical [offsetPx, offsetPx + altoPx) — la
+ * porción que le toca a UNA página del PDF — y la entrega como JPEG. Se recorta a JPEG (no PNG) por
+ * la misma razón de siempre (ver el comentario que tenía convertirAJPEG(), la función que hacía
+ * esto mismo pero para la imagen COMPLETA antes de la corrección del 2026-09-10 de más abajo): jsPDF
+ * guarda un PNG sin comprimir dentro del PDF, y un informe de varias páginas se iba a decenas de MB
+ * en vez de apenas unos KB.
  */
-async function convertirAJPEG(blobPNG: Blob): Promise<string> {
-  const bitmap = await createImageBitmap(blobPNG)
-  try {
-    const canvas = document.createElement('canvas')
-    canvas.width = bitmap.width
-    canvas.height = bitmap.height
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('El navegador no pudo preparar el PDF (canvas no disponible).')
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-    ctx.drawImage(bitmap, 0, 0)
-    return canvas.toDataURL('image/jpeg', CALIDAD_JPEG_PDF)
-  } finally {
-    bitmap.close()
-  }
+function recortarComoJPEG(bitmap: ImageBitmap, offsetPx: number, altoPx: number): string {
+  const canvas = document.createElement('canvas')
+  canvas.width = bitmap.width
+  canvas.height = altoPx
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('El navegador no pudo preparar el PDF (canvas no disponible).')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  // drawImage con un desplazamiento vertical negativo: dibuja el bitmap ENTERO pero corrido hacia
+  // arriba offsetPx, así que dentro de este canvas (más bajo que el bitmap completo) solo queda
+  // visible la franja que va de offsetPx a offsetPx+altoPx — el resto cae fuera del canvas y se
+  // descarta, ni siquiera se dibuja.
+  ctx.drawImage(bitmap, 0, -offsetPx)
+  return canvas.toDataURL('image/jpeg', CALIDAD_JPEG_PDF)
 }
 
 /**
- * Calcula en qué alturas (dentro de la imagen completa del informe, ya convertidas a puntos de
- * PDF) debe empezar cada página — a pedido de Nathalia ("el reporte queda cortado al pasar a la
- * segunda hoja"): antes cada página empezaba siempre exactamente `altoPagina` puntos después de la
- * anterior, sin importar QUÉ hubiera justo en ese punto de corte, así que una tarjeta o una fila de
- * tabla que cayera a caballo entre dos páginas quedaba partida a la mitad (una mitad al final de
- * una página, la otra mitad al principio de la siguiente).
+ * Calcula en qué alturas (dentro del alto total del informe, en la misma unidad que `altoPorPagina`
+ * y que `bloques` — puede ser píxeles CSS, puntos de PDF, o cualquier otra, mientras las tres
+ * vengan en la misma) debe empezar cada página — a pedido de Nathalia ("el reporte queda cortado al
+ * pasar a la segunda hoja"): antes cada página empezaba siempre exactamente `altoPorPagina` después
+ * de la anterior, sin importar QUÉ hubiera justo en ese punto de corte, así que una tarjeta o una
+ * fila de tabla que cayera a caballo entre dos páginas quedaba partida a la mitad (una mitad al
+ * final de una página, la otra mitad al principio de la siguiente).
  *
- * Ahora, si el corte "natural" (cursor + altoPagina) caería adentro de uno de los `bloques`
+ * Ahora, si el corte "natural" (cursor + altoPorPagina) caería adentro de uno de los `bloques`
  * protegidos (medidos por medirBloquesProtegidos() a partir de los elementos con
  * data-pdf-bloque — ver ReporteSemanalAsociado.tsx), el corte se adelanta hasta el borde de
  * ARRIBA de ese bloque en vez de partirlo: la página anterior termina con un poco de espacio en
@@ -438,16 +433,16 @@ async function convertirAJPEG(blobPNG: Blob): Promise<string> {
  * avanzar nunca.
  */
 function calcularCortesDePagina(
-  altoImagen: number,
-  altoPagina: number,
+  altoTotal: number,
+  altoPorPagina: number,
   bloques: { top: number; bottom: number }[],
 ): number[] {
   const cortes = [0]
   let cursor = 0
-  while (altoImagen - cursor > altoPagina + 1 && cortes.length < MAXIMO_PAGINAS_PDF) {
-    let corte = cursor + altoPagina
+  while (altoTotal - cursor > altoPorPagina + 1 && cortes.length < MAXIMO_PAGINAS_PDF) {
+    let corte = cursor + altoPorPagina
     const bloqueQueParte = bloques.find((b) => b.top > cursor + 0.5 && b.top < corte - 0.5 && b.bottom > corte + 0.5)
-    if (bloqueQueParte && bloqueQueParte.bottom - bloqueQueParte.top < altoPagina) {
+    if (bloqueQueParte && bloqueQueParte.bottom - bloqueQueParte.top < altoPorPagina) {
       corte = bloqueQueParte.top
     }
     cortes.push(corte)
@@ -457,14 +452,25 @@ function calcularCortesDePagina(
 }
 
 /**
- * Arma un PDF tamaño carta con la imagen ya capturada, repartida en tantas páginas como haga
- * falta — jsPDF no reparte solo una imagen alta en varias páginas, así que se dibuja la MISMA
- * imagen completa una vez por página, corriéndola hacia arriba cada vez (posicionY más negativo)
- * para que cada página muestre el siguiente pedazo; lo que queda fuera del alto de esa página
- * simplemente no se ve, igual que si se hubiera recortado. El alias ('informe') le permite a
- * jsPDF reconocer que es la MISMA imagen en cada página, en vez de tratarla como una distinta
- * cada vez. Las alturas donde arranca cada página ya no son siempre múltiplos de `altoPagina` —
- * ver calcularCortesDePagina() sobre cómo se ajustan para no partir un bloque protegido.
+ * Arma un PDF tamaño carta con la imagen ya capturada, repartida en tantas páginas como haga falta.
+ *
+ * **Corrección 2026-09-10 — por qué esto ya NO dibuja la misma imagen completa en cada página**:
+ * la primera versión de esta función (la que Nathalia probó y seguía viendo cortada) dibujaba la
+ * imagen COMPLETA en cada página, corriéndola hacia arriba cada vez — eso funciona bien cuando
+ * todas las páginas miden exactamente lo mismo (`altoPorPagina` cada una, sin excepción), porque
+ * entonces se acomodan en fila sin dejar huecos ni encimarse. Pero calcularCortesDePagina() a veces
+ * necesita que UNA página termine ANTES de su alto normal (para no partir un bloque protegido) — y
+ * como cada página seguía dibujando la imagen completa (siempre `altoPorPagina` de alto, sin
+ * importar dónde empezara la SIGUIENTE), adelantar el inicio de la página siguiente no hacía que la
+ * anterior "terminara antes": las dos terminaban mostrando el mismo pedazo de imagen, uno encima del
+ * otro — por eso el encabezado "Definiciones" aparecía completo al final de una página Y OTRA VEZ
+ * completo al principio de la siguiente, en vez de aparecer una sola vez.
+ *
+ * La corrección de fondo: en vez de reusar la imagen completa, se recorta un JPEG DISTINTO por cada
+ * página (recortarComoJPEG()), del alto exacto que le toca a esa página según calcularCortesDePagina()
+ * — así cada página muestra un pedazo AJENO al de las demás, sin superposición posible, y una página
+ * que termina antes de tiempo simplemente muestra menos alto (el resto de la página queda en blanco)
+ * en vez de seguir mostrando lo mismo que la siguiente.
  */
 async function crearPDFDesdeImagen(
   blob: Blob,
@@ -472,27 +478,43 @@ async function crearPDFDesdeImagen(
   altoCSS: number,
   bloquesProtegidosCSS: { top: number; bottom: number }[],
 ): Promise<Blob> {
-  const dataUrlJPEG = await convertirAJPEG(blob)
-
   const pdf = new jsPDF({ unit: 'pt', format: 'letter' })
   const anchoPagina = pdf.internal.pageSize.getWidth() - MARGEN_PDF_PT * 2
-  const altoPagina = pdf.internal.pageSize.getHeight() - MARGEN_PDF_PT * 2
-  const altoImagen = (altoCSS / anchoCSS) * anchoPagina
-  const ALIAS_IMAGEN = 'informe'
+  const altoPaginaPt = pdf.internal.pageSize.getHeight() - MARGEN_PDF_PT * 2
 
-  // anchoPagina/anchoCSS: cuántos puntos de PDF equivale cada píxel CSS del clon capturado — la
-  // misma proporción que ya se usa para convertir el ancho/alto completos de la imagen.
+  // factorPt: cuántos puntos de PDF equivale cada píxel CSS del clon capturado — se trabaja todo el
+  // cálculo de cortes en píxeles CSS (la misma unidad en la que ya vienen medidos los bloques
+  // protegidos) y solo se convierte a puntos de PDF al final, para dibujar.
   const factorPt = anchoPagina / anchoCSS
-  const bloques = bloquesProtegidosCSS
-    .map((b) => ({ top: b.top * factorPt, bottom: b.bottom * factorPt }))
-    .sort((a, b) => a.top - b.top)
+  const altoPaginaCSS = altoPaginaPt / factorPt
+  const bloques = [...bloquesProtegidosCSS].sort((a, b) => a.top - b.top)
+  const cortesCSS = calcularCortesDePagina(altoCSS, altoPaginaCSS, bloques)
 
-  const cortes = calcularCortesDePagina(altoImagen, altoPagina, bloques)
-  cortes.forEach((corte, indice) => {
-    if (indice > 0) pdf.addPage()
-    const posicionY = MARGEN_PDF_PT - corte
-    pdf.addImage(dataUrlJPEG, 'JPEG', MARGEN_PDF_PT, posicionY, anchoPagina, altoImagen, ALIAS_IMAGEN)
-  })
+  const bitmap = await createImageBitmap(blob)
+  try {
+    // píxeles reales de la imagen capturada por cada píxel CSS del clon — depende de la nitidez
+    // (pixelRatio) con la que se dibujó en capturarComoPNG(), pero no hace falta conocer ese valor
+    // aparte: se obtiene directo del propio bitmap ya capturado.
+    const pixelesPorCSSpx = bitmap.height / altoCSS
+
+    for (let indice = 0; indice < cortesCSS.length; indice++) {
+      const inicioCSS = cortesCSS[indice]
+      const esUltima = indice + 1 === cortesCSS.length
+      const finCSS = esUltima ? altoCSS : cortesCSS[indice + 1]
+
+      const inicioPx = Math.round(inicioCSS * pixelesPorCSSpx)
+      const finPx = esUltima ? bitmap.height : Math.round(finCSS * pixelesPorCSSpx)
+      const altoSlicePx = Math.max(1, finPx - inicioPx)
+      const altoSlicePt = (finCSS - inicioCSS) * factorPt
+
+      const dataUrlSlice = recortarComoJPEG(bitmap, inicioPx, altoSlicePx)
+
+      if (indice > 0) pdf.addPage()
+      pdf.addImage(dataUrlSlice, 'JPEG', MARGEN_PDF_PT, MARGEN_PDF_PT, anchoPagina, altoSlicePt)
+    }
+  } finally {
+    bitmap.close()
+  }
 
   return pdf.output('blob')
 }
