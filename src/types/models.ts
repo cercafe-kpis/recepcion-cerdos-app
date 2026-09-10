@@ -164,9 +164,32 @@ export interface NovedadCorral extends CapturaOffline {
   CantMuertoReposo?: number
   ComportamientoSexual: boolean
   DisponibilidadAgua: boolean
+  /**
+   * Novedad en corral (agregada 2026-09-10, a pedido de Nathalia): mismo patrón de
+   * checkbox+cantidad, y "¿se benefició de emergencia?"+cantidad, que las novedades de LLEGADA en
+   * Recepcion.tsx (NovLlegadaLesionados y compañía) — ver el comentario junto a esos campos y el
+   * de generarTiquetesNovedadCorral() en src/graph/lists.ts para el porqué solo la cantidad de
+   * beneficio de emergencia genera tiquete en Consolidado. Nombres cortos ("BenefEmerg" en vez de
+   * "BeneficioEmergencia") A PROPÓSITO: los mismos campos en Recepcion tienen nombres tan largos
+   * que SharePoint corta su nombre interno a 32 caracteres (ver NOMBRE_SP_BENEFICIO_EMERGENCIA en
+   * lists.ts) — aquí, al ser columnas nuevas, se evitó ese problema desde el diseño en vez de
+   * repetir el parche.
+   */
+  CorralLesionados: boolean
+  CorralCantLesionados?: number
+  CorralLesionadosBenefEmerg: boolean
+  CorralCantLesionadosBenefEmerg?: number
+  CorralCaidos: boolean
+  CorralCantCaidos?: number
+  CorralCaidosBenefEmerg: boolean
+  CorralCantCaidosBenefEmerg?: number
+  CorralAgitados: boolean
+  CorralCantAgitados?: number
+  CorralAgitadosBenefEmerg: boolean
+  CorralCantAgitadosBenefEmerg?: number
 }
 
-export type GrupoNovedad = 'Fortuito' | 'Novedad de llegada'
+export type GrupoNovedad = 'Fortuito' | 'Novedad de llegada' | 'Novedad en corral'
 export type TipoNovedad =
   | 'Muerto en Transporte'
   | 'Muerto en Desembarque'
