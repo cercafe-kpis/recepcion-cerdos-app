@@ -590,46 +590,97 @@ export async function existeNovedadCorralDeRecepcion(recepcionSpId: string): Pro
  * A diferencia de existeNovedadCorralDeRecepcion() (que solo confirma que
  * existe), esta trae el registro completo — la usa Consolidado.tsx en su
  * botón "Volver a generar tiquetes" para poder calcular el tiquete de
- * "Muerto en Reposo", cuya cantidad vive en NovedadCorral. Antes ese botón
- * buscaba la NovedadCorral en Dexie local, pero Novedades en Corral se
- * captura por dispositivo — si se capturó en el celular y el botón se usa
- * desde el computador, Dexie del computador nunca tiene ese registro. Aquí
- * se consulta Graph directamente, igual que con Ubicación/NovedadCorral en
- * cerrarLotesCompletos().
+ * "Muerto en Reposo", cuya cantidad vive en NovedadCorral, y (desde
+ * 2026-09-10) los reportes para sumar "Novedad en corral" a Lesión/Agitados/
+ * Caídos. Antes ese botón buscaba la NovedadCorral en Dexie local, pero
+ * Novedades en Corral se captura por dispositivo — si se capturó en el
+ * celular y el botón se usa desde el computador, Dexie del computador nunca
+ * tiene ese registro. Aquí se consulta Graph directamente, igual que con
+ * Ubicación/NovedadCorral en cerrarLotesCompletos().
+ *
+ * IMPORTANTE (bug corregido 2026-09-10): nada impide capturar Novedades en
+ * Corral más de una vez para la misma Recepción (ver "Pendiente" en el
+ * documento de arquitectura) — cada "Guardar novedad" crea un registro
+ * NUEVO en SharePoint, nunca edita uno existente. Nathalia lo hizo así con
+ * un lote real (Muerto en reposo en un envío, Caído en otro envío
+ * posterior) y el reporte diario no mostraba el Caído: esta función traía
+ * antes solo UN registro (`$top=1`, sin ningún orden) y se quedaba con el
+ * que no tenía el Caído. Ahora trae TODOS los registros de esa Recepción y
+ * los combina: las cantidades se SUMAN entre registros y los indicadores
+ * Sí/No quedan en Sí si algún registro lo marcó — así el resultado es
+ * correcto sin importar en cuántos envíos separados se haya capturado.
  */
 export async function obtenerNovedadCorralDeRecepcion(recepcionSpId: string): Promise<NovedadCorral | undefined> {
   const items = await listItems<Record<string, unknown>>(
     'NovedadesCorral',
-    `$expand=fields&$filter=fields/RecepcionId eq '${recepcionSpId.replace(/'/g, "''")}'&$top=1`,
+    `$expand=fields&$filter=fields/RecepcionId eq '${recepcionSpId.replace(/'/g, "''")}'`,
   )
-  const item = items[0]
-  if (!item) return undefined
-  const f = item.fields
+  if (items.length === 0) return undefined
+
   const numeroOpcional = (valor: unknown) => (valor === undefined || valor === null ? undefined : Number(valor))
-  return {
-    id: item.id,
-    spId: item.id,
-    RecepcionId: String(f.RecepcionId ?? ''),
-    MuertoReposo: Boolean(f.MuertoReposo),
-    CantMuertoReposo: numeroOpcional(f.CantMuertoReposo),
-    ComportamientoSexual: Boolean(f.ComportamientoSexual),
-    DisponibilidadAgua: Boolean(f.DisponibilidadAgua),
-    CorralLesionados: Boolean(f.CorralLesionados),
-    CorralCantLesionados: numeroOpcional(f.CorralCantLesionados),
-    CorralLesionadosBenefEmerg: Boolean(f.CorralLesionadosBenefEmerg),
-    CorralCantLesionadosBenefEmerg: numeroOpcional(f.CorralCantLesionadosBenefEmerg),
-    CorralCaidos: Boolean(f.CorralCaidos),
-    CorralCantCaidos: numeroOpcional(f.CorralCantCaidos),
-    CorralCaidosBenefEmerg: Boolean(f.CorralCaidosBenefEmerg),
-    CorralCantCaidosBenefEmerg: numeroOpcional(f.CorralCantCaidosBenefEmerg),
-    CorralAgitados: Boolean(f.CorralAgitados),
-    CorralCantAgitados: numeroOpcional(f.CorralCantAgitados),
-    CorralAgitadosBenefEmerg: Boolean(f.CorralAgitadosBenefEmerg),
-    CorralCantAgitadosBenefEmerg: numeroOpcional(f.CorralCantAgitadosBenefEmerg),
-    EstadoSync: 'Sincronizada',
-    CapturadaEn: f.CapturadaEn ? String(f.CapturadaEn) : '',
-    RecibidaEn: f.RecibidaEn ? String(f.RecibidaEn) : undefined,
+  const sumarOpcional = (a: number | undefined, b: unknown) => {
+    const bNum = numeroOpcional(b)
+    if (a === undefined && bNum === undefined) return undefined
+    return (a ?? 0) + (bNum ?? 0)
   }
+
+  return items.reduce<NovedadCorral>(
+    (combinada, item) => {
+      const f = item.fields
+      return {
+        ...combinada,
+        MuertoReposo: combinada.MuertoReposo || Boolean(f.MuertoReposo),
+        CantMuertoReposo: sumarOpcional(combinada.CantMuertoReposo, f.CantMuertoReposo),
+        ComportamientoSexual: combinada.ComportamientoSexual || Boolean(f.ComportamientoSexual),
+        // "Hay disponibilidad de agua" es un indicador de bienestar, no una novedad que se sume —
+        // si CUALQUIER envío reportó que no había agua, vale la pena que quede así de "No".
+        DisponibilidadAgua: combinada.DisponibilidadAgua && Boolean(f.DisponibilidadAgua),
+        CorralLesionados: combinada.CorralLesionados || Boolean(f.CorralLesionados),
+        CorralCantLesionados: sumarOpcional(combinada.CorralCantLesionados, f.CorralCantLesionados),
+        CorralLesionadosBenefEmerg: combinada.CorralLesionadosBenefEmerg || Boolean(f.CorralLesionadosBenefEmerg),
+        CorralCantLesionadosBenefEmerg: sumarOpcional(combinada.CorralCantLesionadosBenefEmerg, f.CorralCantLesionadosBenefEmerg),
+        CorralCaidos: combinada.CorralCaidos || Boolean(f.CorralCaidos),
+        CorralCantCaidos: sumarOpcional(combinada.CorralCantCaidos, f.CorralCantCaidos),
+        CorralCaidosBenefEmerg: combinada.CorralCaidosBenefEmerg || Boolean(f.CorralCaidosBenefEmerg),
+        CorralCantCaidosBenefEmerg: sumarOpcional(combinada.CorralCantCaidosBenefEmerg, f.CorralCantCaidosBenefEmerg),
+        CorralAgitados: combinada.CorralAgitados || Boolean(f.CorralAgitados),
+        CorralCantAgitados: sumarOpcional(combinada.CorralCantAgitados, f.CorralCantAgitados),
+        CorralAgitadosBenefEmerg: combinada.CorralAgitadosBenefEmerg || Boolean(f.CorralAgitadosBenefEmerg),
+        CorralCantAgitadosBenefEmerg: sumarOpcional(combinada.CorralCantAgitadosBenefEmerg, f.CorralCantAgitadosBenefEmerg),
+        // Más reciente de los envíos combinados, solo informativo (ningún llamador lo usa para
+        // calcular nada) — RecibidaEn igual.
+        CapturadaEn: f.CapturadaEn && String(f.CapturadaEn) > combinada.CapturadaEn ? String(f.CapturadaEn) : combinada.CapturadaEn,
+        RecibidaEn: f.RecibidaEn && (!combinada.RecibidaEn || String(f.RecibidaEn) > combinada.RecibidaEn) ? String(f.RecibidaEn) : combinada.RecibidaEn,
+      }
+    },
+    {
+      // id/spId: el del primer registro encontrado — ninguno de los llamadores actuales usa este
+      // id para nada (solo leen las cantidades e indicadores), así que es puramente informativo
+      // aunque en realidad representen 2+ registros combinados.
+      id: items[0].id,
+      spId: items[0].id,
+      RecepcionId: recepcionSpId,
+      MuertoReposo: false,
+      CantMuertoReposo: undefined,
+      ComportamientoSexual: false,
+      DisponibilidadAgua: true,
+      CorralLesionados: false,
+      CorralCantLesionados: undefined,
+      CorralLesionadosBenefEmerg: false,
+      CorralCantLesionadosBenefEmerg: undefined,
+      CorralCaidos: false,
+      CorralCantCaidos: undefined,
+      CorralCaidosBenefEmerg: false,
+      CorralCantCaidosBenefEmerg: undefined,
+      CorralAgitados: false,
+      CorralCantAgitados: undefined,
+      CorralAgitadosBenefEmerg: false,
+      CorralCantAgitadosBenefEmerg: undefined,
+      EstadoSync: 'Sincronizada',
+      CapturadaEn: '',
+      RecibidaEn: undefined,
+    },
+  )
 }
 
 export async function registrarLog(entrada: Omit<RecepcionLogEntry, 'id'>): Promise<void> {
