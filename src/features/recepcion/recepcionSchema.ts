@@ -24,8 +24,13 @@ export const recepcionSchema = z
     NumeroTotalCerdos: z.coerce.number().int('Debe ser un número entero').positive('Debe ser mayor a 0'),
     PesoPromedioGranja: z.coerce.number().positive('Debe ser mayor a 0'),
     PlacaVehiculoId: z.string().min(1, 'Selecciona un vehículo'),
-    GuiaSanitariaICA: z.string().trim().min(1, 'Obligatorio'),
-    RemisionGranja: z.string().trim().min(1, 'Obligatorio'),
+    // Formato forzado por el input enmascarado en Recepcion.tsx (formatearGuiaICA): siempre 3
+    // cifras, un guion, y el resto de los números — ej. "026-445555552".
+    GuiaSanitariaICA: z
+      .string()
+      .trim()
+      .regex(/^\d{3}-\d+$/, 'Obligatorio — formato: 3 cifras, guion y el resto del número (ej. 026-445555552)'),
+    RemisionGranja: z.enum(['Sí', 'No']),
     QRLote: z.boolean(),
     CertificadoInmunocastracion: z.boolean(),
     CoincideGuiaICAvsQR: z.boolean(),
