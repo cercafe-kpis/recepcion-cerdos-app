@@ -571,6 +571,8 @@ function mapFieldsALlegadaPendiente(item: { id: string; fields: Record<string, u
     Consecutivo: String(f.Consecutivo ?? ''),
     NumeroOrden: f.NumeroOrden ? String(f.NumeroOrden) : undefined,
     PlacaVehiculoId: f.PlacaVehiculoIdLookupId ? String(f.PlacaVehiculoIdLookupId) : undefined,
+    GuiaSanitariaICA: f.GuiaSanitariaICA ? String(f.GuiaSanitariaICA) : undefined,
+    NumeroTotalCerdos: f.NumeroTotalCerdos !== undefined && f.NumeroTotalCerdos !== null ? Number(f.NumeroTotalCerdos) : undefined,
     CapturadoPor: String(f.CapturadoPor ?? ''),
     CreadoEn: String(f.CreadoEn ?? ''),
   }
@@ -596,10 +598,10 @@ export async function listarLlegadasPendientesPorFecha(fecha: string): Promise<L
 }
 
 /**
- * Registra que un camión llegó y quedó esperando sin desembarcar — botón "+ Registrar llegada en
- * espera" en la pestaña "Cierre diario" de Reporte.tsx. Escribe DIRECTO contra Graph (esa pestaña ya
- * trabaja solo en línea, sin Dexie ni cola de sincronización — igual que marcarBeneficiadoMismoDia()
- * arriba), así que esta acción necesita conexión en el momento de usarla.
+ * Registra que un camión llegó y quedó esperando sin desembarcar — pestaña "Llegada en espera" de
+ * Recepcion.tsx (movida ahí 2026-09-11, cuarta ronda; antes vivía como botón en "Cierre diario" de
+ * Reporte.tsx). Escribe DIRECTO contra Graph, sin Dexie ni cola de sincronización — igual que
+ * marcarBeneficiadoMismoDia() arriba —, así que esta acción necesita conexión en el momento de usarla.
  */
 export async function crearLlegadaPendiente(
   datos: Omit<LlegadaPendiente, 'id' | 'Title' | 'CreadoEn'>,
