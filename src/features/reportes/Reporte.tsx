@@ -3,7 +3,6 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { db } from '../../offline/db'
 import {
-  listarLlegadasPendientesPorFecha,
   listarRecepcionesPorRangoFecha,
   listarTiquetesDeRecepcion,
   obtenerNovedadCorralDeRecepcion,
@@ -12,7 +11,7 @@ import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { ReporteDiarioLote } from './ReporteDiarioLote'
 import { ReporteSemanalAsociado } from './ReporteSemanalAsociado'
 import { ReporteCierreDiario } from './ReporteCierreDiario'
-import type { ConsolidadoTiquete, LlegadaPendiente, NovedadCorral, Recepcion } from '../../types/models'
+import type { ConsolidadoTiquete, NovedadCorral, Recepcion } from '../../types/models'
 
 function hoyISO() {
   return new Date().toISOString().slice(0, 10)
@@ -45,11 +44,7 @@ function haceDiasISO(dias: number) {
  *    día con TODAS las recepciones del día (mismo cuadro que ya usaban en Excel), donde se toca la
  *    celda de "N.° animales" para marcar/desmarcar cuáles ya se beneficiaron el mismo día —
  *    reemplaza la práctica manual de pintar esa celda de azul. Ver el comentario de
- *    `BeneficiadoMismoDia` en models.ts y el de ReporteCierreDiario.tsx. También agrega los
- *    camiones que llegaron y quedaron esperando sin desembarcar ese día (ver el comentario grande
- *    de `LlegadaPendiente` en models.ts) como filas aparte que se resuelven solas por Consecutivo —
- *    esas filas se CREAN desde la pestaña "Llegada en espera" de Recepcion.tsx (movido ahí
- *    2026-09-11, cuarta ronda); aquí solo se muestran y se resuelven solas.
+ *    `BeneficiadoMismoDia` en models.ts y el de ReporteCierreDiario.tsx.
  *
  * Ninguna de las tres pestañas descarga nada en segundo plano ni lo guarda
  * en Dexie: las tres consultan SharePoint directo, solo al tocar "Generar",
@@ -353,12 +348,6 @@ function ReporteSemanal({
  * Se ordena por HoraLlegadaVehiculo (no por Consecutivo, como "Diario") para que el orden de las
  * filas coincida con el orden cronológico de llegada del cuadro de referencia que ya usaban en
  * Excel.
- *
- * Además de las Recepciones del día, trae las LlegadasPendientes de ese mismo día (camiones que
- * llegaron y quedaron esperando sin desembarcar) y descarta aquí las que YA se resolvieron —
- * cualquiera cuyo Consecutivo ya aparezca entre las Recepciones del día — antes de pasarlas a
- * ReporteCierreDiario. Ver el comentario grande de LlegadaPendiente en models.ts. Estas llegadas se
- * CREAN desde la pestaña "Llegada en espera" de Recepcion.tsx — aquí solo se muestran.
  */
 function ReporteCierre({
   mapaAsociados,
@@ -372,20 +361,15 @@ function ReporteCierre({
   const [error, setError] = useState<string>()
   const [generado, setGenerado] = useState(false)
   const [recepciones, setRecepciones] = useState<Recepcion[]>([])
-  const [llegadasPendientes, setLlegadasPendientes] = useState<LlegadaPendiente[]>([])
 
   async function generar() {
     setCargando(true)
     setError(undefined)
     setGenerado(false)
     try {
-      const [traidas, llegadas] = await Promise.all([
-        listarRecepcionesPorRangoFecha(fecha, fecha),
-        listarLlegadasPendientesPorFecha(fecha),
-      ])
+      const traidas = await listarRecepcionesPorRangoFecha(fecha, fecha)
       traidas.sort((a, b) => a.HoraLlegadaVehiculo.localeCompare(b.HoraLlegadaVehiculo))
       setRecepciones(traidas)
-      setLlegadasPendientes(llegadas)
       setGenerado(true)
     } catch (err) {
       setError(`No se pudo generar el reporte: ${(err as Error).message}`)
@@ -397,13 +381,6 @@ function ReporteCierre({
   function onCambio(recepcionId: string, cambios: Partial<Recepcion>) {
     setRecepciones((actuales) => actuales.map((r) => (r.id === recepcionId ? { ...r, ...cambios } : r)))
   }
-
-  // Se resuelve SOLA (nunca a mano, ver LlegadaPendiente en models.ts): cualquier llegada cuyo
-  // Consecutivo ya tenga una Recepción completa ese mismo día deja de mostrarse.
-  const llegadasSinResolver = useMemo(
-    () => llegadasPendientes.filter((lp) => !recepciones.some((r) => r.Consecutivo === lp.Consecutivo)),
-    [llegadasPendientes, recepciones],
-  )
 
   return (
     <div>
@@ -427,7 +404,6 @@ function ReporteCierre({
         error={error}
         generado={generado}
         recepciones={recepciones}
-        llegadasPendientes={llegadasSinResolver}
         asociadoNombre={(r) => mapaAsociados.get(r.AsociadoId)?.Title ?? '—'}
         granjaNombre={(r) => mapaGranjas.get(r.GranjaId)?.Title ?? '—'}
         onCambio={onCambio}
