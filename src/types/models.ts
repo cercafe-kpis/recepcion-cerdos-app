@@ -165,7 +165,8 @@ export interface Recepcion extends CapturaOffline {
  * terminó (exactamente como siempre, sin ningún hueco: cantidad de animales, peso, novedades, etc.
  * solo se conocen en ese momento). Este registro solo guarda lo que YA se sabe apenas llega el
  * camión — confirmado con Nathalia: Hora de llegada, Asociado, Granja y Consecutivo; Número de
- * orden y Placa quedan opcionales por si también se saben ya.
+ * orden, Placa, Guía sanitaria ICA y Número total de cerdos quedan opcionales por si también se
+ * saben ya (estas dos últimas agregadas 2026-09-11, cuarta ronda, también a pedido de Nathalia).
  *
  * Vive en la lista de SharePoint `LlegadasPendientes`, separada de `Recepciones` — no es un Lookup
  * hacia Recepcion ni al revés. Se resuelve SOLO (nunca a mano): en `ReporteCierre` de Reporte.tsx,
@@ -174,11 +175,15 @@ export interface Recepcion extends CapturaOffline {
  * clave de este registro, igual que lo es en Recepcion.
  *
  * A diferencia de Recepcion/Ubicacion/NovedadCorral, este registro NO tiene captura sin conexión:
- * se crea DIRECTO contra Graph desde la pestaña "Cierre diario" de Reporte.tsx (botón "+ Registrar
- * llegada en espera"), que ya trabaja solo en línea por diseño — mismo criterio que
+ * se crea DIRECTO contra Graph, que ya trabaja solo en línea por diseño — mismo criterio que
  * marcarBeneficiadoMismoDia() en src/graph/lists.ts. Por eso no extiende CapturaOffline: no hace
  * falta EstadoSync ni distinguir CapturadaEn/RecibidaEn, con un solo `CreadoEn` alcanza (mismo
  * patrón simple que RecepcionLogEntry, más abajo).
+ *
+ * El botón que crea este registro vivió primero en la pestaña "Cierre diario" de Reporte.tsx; a
+ * pedido de Nathalia (2026-09-11, cuarta ronda) se movió a una segunda pestaña ("Llegada en
+ * espera") dentro de la pantalla de Recepción (ver LlegadaEnEspera en Recepcion.tsx) — "Cierre
+ * diario" sigue MOSTRANDO y resolviendo solas las llegadas pendientes del día, pero ya no las crea.
  */
 export interface LlegadaPendiente {
   id: string
@@ -190,6 +195,9 @@ export interface LlegadaPendiente {
   Consecutivo: string
   NumeroOrden?: string
   PlacaVehiculoId?: string
+  /** Mismo formato forzado que Recepcion.GuiaSanitariaICA (3 cifras + guion + el resto). */
+  GuiaSanitariaICA?: string
+  NumeroTotalCerdos?: number
   CapturadoPor: string
   CreadoEn: string
 }
