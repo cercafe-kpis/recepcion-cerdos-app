@@ -138,6 +138,9 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
         HoraInicioDesembarque: combinarFechaHora(valores.FechaRecepcion, valores.HoraInicioDesembarque),
         HoraFinalDesembarque: combinarFechaHora(valores.FechaRecepcion, valores.HoraFinalDesembarque),
         EstadoLote: 'En proceso',
+        // Se marca aparte, al final del día, desde la pestaña "Cierre diario" de Reporte.tsx — ver
+        // el comentario de BeneficiadoMismoDia en models.ts.
+        BeneficiadoMismoDia: false,
         EstadoSync: 'Pendiente',
         CapturadaEn: new Date().toISOString(),
         // Se guarda solo, sin pedirlo en el formulario — es el "Encargado" del reporte diario por
