@@ -2,10 +2,11 @@ import { useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useLiveQuery } from 'dexie-react-hooks'
+import clsx from 'clsx'
 import { db } from '../../offline/db'
 import { sincronizar } from '../../offline/syncService'
 import { CampoCheckbox, CampoSelect, CampoTexto, SeccionFormulario } from '../../components/CamposFormulario'
-import { buscarLlegadaPendientePorConsecutivo } from '../../graph/lists'
+import { buscarLlegadaPendientePorConsecutivo, crearLlegadaPendiente } from '../../graph/lists'
 import { recepcionSchema, type RecepcionFormInput, type RecepcionFormValues } from './recepcionSchema'
 import type { Recepcion as RecepcionModelo, Usuario } from '../../types/models'
 
@@ -85,6 +86,54 @@ const VALORES_INICIALES: RecepcionFormInput = {
 }
 
 /**
+ * Pantalla de Recepción — dos pestañas (agregada la segunda 2026-09-11, cuarta ronda, a pedido de
+ * Nathalia, con el mismo estilo de pestañas que ya usa Reporte.tsx):
+ *
+ *  - "Recepción completa" (RecepcionCompleta, más abajo): el formulario de siempre, sin cambios.
+ *  - "Llegada en espera" (LlegadaEnEspera, más abajo): registro rápido para cuando el camión llega
+ *    y queda esperando en el patio sin desembarcar todavía — antes este registro se creaba desde un
+ *    botón en la pestaña "Cierre diario" de Reporte.tsx; se movió aquí porque es quien recibe el
+ *    camión, no quien arma el cierre del día, quien normalmente sabe estos datos apenas llega. Ver
+ *    el comentario grande de LlegadaPendiente en models.ts. "Cierre diario" sigue mostrando y
+ *    resolviendo solas estas llegadas — solo dejó de ser quien las crea.
+ */
+export function Recepcion({ usuario }: { usuario: Usuario }) {
+  const [modo, setModo] = useState<'completa' | 'espera'>('completa')
+
+  return (
+    <div>
+      <h1 className="text-xl font-semibold text-slate-800">Recepción</h1>
+      <p className="mt-1 text-sm text-slate-500">Registra la llegada de un lote de cerdos a la planta.</p>
+
+      <div className="mt-4 flex gap-1">
+        <button
+          type="button"
+          onClick={() => setModo('completa')}
+          className={clsx(
+            'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+            modo === 'completa' ? 'bg-brand-navy text-white' : 'text-slate-600 hover:bg-brand-navy-tint',
+          )}
+        >
+          Recepción completa
+        </button>
+        <button
+          type="button"
+          onClick={() => setModo('espera')}
+          className={clsx(
+            'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+            modo === 'espera' ? 'bg-brand-navy text-white' : 'text-slate-600 hover:bg-brand-navy-tint',
+          )}
+        >
+          Llegada en espera
+        </button>
+      </div>
+
+      {modo === 'completa' ? <RecepcionCompleta usuario={usuario} /> : <LlegadaEnEspera usuario={usuario} />}
+    </div>
+  )
+}
+
+/**
  * Formulario de referencia de la app: los otros dos (Ubicación y Novedades
  * en Corral, en src/features/ubicacion y src/features/novedades-corral)
  * siguen exactamente este mismo patrón con menos campos — react-hook-form +
@@ -92,7 +141,7 @@ const VALORES_INICIALES: RecepcionFormInput = {
  * guardar sin conexión, y sincronizar() disparada sin esperarla si hay
  * internet en ese momento.
  */
-export function Recepcion({ usuario }: { usuario: Usuario }) {
+function RecepcionCompleta({ usuario }: { usuario: Usuario }) {
   const [guardando, setGuardando] = useState(false)
   const [mensaje, setMensaje] = useState<string>()
 
@@ -212,9 +261,6 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-slate-800">Recepción</h1>
-      <p className="mt-1 text-sm text-slate-500">Registra la llegada de un lote de cerdos a la planta.</p>
-
       {mensaje && (
         <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{mensaje}</p>
       )}
@@ -418,6 +464,157 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
           {guardando ? 'Guardando…' : 'Guardar recepción'}
         </button>
       </form>
+    </div>
+  )
+}
+
+const VALORES_INICIALES_ESPERA = {
+  hora: '',
+  asociadoId: '',
+  granjaId: '',
+  consecutivo: '',
+  numeroOrden: '',
+  placaId: '',
+  guiaSanitariaICA: '',
+  numeroTotalCerdos: '',
+}
+
+/**
+ * "Llegada en espera" — pestaña de Recepcion.tsx (movida aquí 2026-09-11, cuarta ronda; antes era
+ * el botón "+ Registrar llegada en espera" dentro de "Cierre diario" en Reporte.tsx — ver el
+ * comentario grande de Recepcion() arriba y el de LlegadaPendiente en models.ts). Registro rápido,
+ * SOLO EN LÍNEA (igual que crearLlegadaPendiente() en graph/lists.ts), para cuando el camión llega
+ * y queda esperando en el patio sin desembarcar todavía: guarda solo lo que ya se sabe en ese
+ * momento y NO reemplaza la Recepción completa — cuando el desembarque termine, esta misma persona
+ * (u otra) sigue llenando "Recepción completa" como siempre, y ahí puede tocar "Cargar datos de
+ * llegada en espera" con el mismo Consecutivo para traer lo ya digitado aquí sin repetirlo.
+ *
+ * A diferencia de Recepción completa, la fecha NO se pide — siempre es HOY (`FechaLlegada`), porque
+ * este registro es para el camión que está llegando en este momento, nunca para capturar algo
+ * atrasado de otro día.
+ */
+function LlegadaEnEspera({ usuario }: { usuario: Usuario }) {
+  const asociados = useLiveQuery(() => db.asociados.filter((a) => a.Activo).toArray(), []) ?? []
+  const granjas = useLiveQuery(() => db.granjas.filter((g) => g.Activa).toArray(), []) ?? []
+  const vehiculos = useLiveQuery(() => db.vehiculos.filter((v) => v.Activo).toArray(), []) ?? []
+
+  const [form, setForm] = useState(VALORES_INICIALES_ESPERA)
+  const [guardando, setGuardando] = useState(false)
+  const [mensaje, setMensaje] = useState<string>()
+  const [error, setError] = useState<string>()
+
+  const granjasDelAsociado = useMemo(
+    () => (form.asociadoId ? granjas.filter((g) => g.AsociadoId === form.asociadoId) : granjas),
+    [granjas, form.asociadoId],
+  )
+
+  async function guardar() {
+    if (guardando) return
+    setMensaje(undefined)
+    setError(undefined)
+    if (!form.hora || !form.asociadoId || !form.granjaId || !form.consecutivo.trim()) {
+      setError('Completa hora de llegada, asociado, granja y consecutivo.')
+      return
+    }
+    setGuardando(true)
+    try {
+      const hoy = new Date().toISOString().slice(0, 10)
+      await crearLlegadaPendiente({
+        FechaLlegada: hoy,
+        HoraLlegadaVehiculo: combinarFechaHora(hoy, form.hora),
+        AsociadoId: form.asociadoId,
+        GranjaId: form.granjaId,
+        Consecutivo: form.consecutivo.trim(),
+        NumeroOrden: form.numeroOrden.trim() || undefined,
+        PlacaVehiculoId: form.placaId || undefined,
+        GuiaSanitariaICA: form.guiaSanitariaICA.trim() || undefined,
+        NumeroTotalCerdos: form.numeroTotalCerdos.trim() ? Number(form.numeroTotalCerdos) : undefined,
+        CapturadoPor: usuario.Title,
+      })
+      setForm(VALORES_INICIALES_ESPERA)
+      setMensaje('Llegada en espera guardada — aparecerá en "Cierre diario" hasta que se complete la Recepción.')
+    } catch (err) {
+      setError(`No se pudo guardar: ${(err as Error).message}`)
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  return (
+    <div>
+      {mensaje && <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{mensaje}</p>}
+      {error && <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">{error}</p>}
+
+      <div className="mt-4 space-y-5">
+        <SeccionFormulario titulo="Datos conocidos al llegar">
+          <CampoTexto
+            type="time"
+            etiqueta="Hora de llegada"
+            requerido
+            value={form.hora}
+            onChange={(e) => setForm((actual) => ({ ...actual, hora: e.target.value }))}
+          />
+          <CampoTexto
+            etiqueta="Consecutivo"
+            requerido
+            value={form.consecutivo}
+            onChange={(e) => setForm((actual) => ({ ...actual, consecutivo: e.target.value }))}
+          />
+          <CampoSelect
+            etiqueta="Asociado"
+            requerido
+            value={form.asociadoId}
+            onChange={(e) => setForm((actual) => ({ ...actual, asociadoId: e.target.value, granjaId: '' }))}
+            opciones={asociados.map((a) => ({ value: a.id, label: a.Title }))}
+          />
+          <CampoSelect
+            etiqueta="Granja"
+            requerido
+            value={form.granjaId}
+            onChange={(e) => setForm((actual) => ({ ...actual, granjaId: e.target.value }))}
+            opciones={granjasDelAsociado.map((g) => ({ value: g.id, label: g.Title }))}
+          />
+          <CampoTexto
+            etiqueta="Número de orden"
+            ayuda="Opcional — si ya se sabe"
+            value={form.numeroOrden}
+            onChange={(e) => setForm((actual) => ({ ...actual, numeroOrden: e.target.value }))}
+          />
+          <CampoSelect
+            etiqueta="Placa del vehículo"
+            placeholder="Si ya se sabe…"
+            value={form.placaId}
+            onChange={(e) => setForm((actual) => ({ ...actual, placaId: e.target.value }))}
+            opciones={vehiculos.map((v) => ({ value: v.id, label: v.Title }))}
+          />
+          <CampoTexto
+            inputMode="numeric"
+            placeholder="026-445555552"
+            etiqueta="Guía sanitaria ICA"
+            ayuda="Opcional — si ya se sabe"
+            value={form.guiaSanitariaICA}
+            onChange={(e) => setForm((actual) => ({ ...actual, guiaSanitariaICA: formatearGuiaICA(e.target.value) }))}
+          />
+          <CampoTexto
+            type="number"
+            step="1"
+            etiqueta="Número total de cerdos"
+            ayuda="Opcional — si ya se sabe"
+            value={form.numeroTotalCerdos}
+            onChange={(e) => setForm((actual) => ({ ...actual, numeroTotalCerdos: e.target.value }))}
+          />
+        </SeccionFormulario>
+
+        <button
+          type="button"
+          onClick={() => void guardar()}
+          disabled={guardando || !navigator.onLine}
+          title={navigator.onLine ? undefined : 'Sin conexión — no se puede guardar'}
+          className="rounded-md bg-brand-navy px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-navy-hover disabled:opacity-60"
+        >
+          {guardando ? 'Guardando…' : 'Guardar llegada en espera'}
+        </button>
+      </div>
     </div>
   )
 }
