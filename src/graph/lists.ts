@@ -467,6 +467,25 @@ export async function listarRecepcionesPorRangoFecha(desde: string, hasta: strin
 }
 
 /**
+ * Busca Recepciones por Consecutivo EXACTO, sin importar la fecha — a diferencia de
+ * listarRecepcionesPorRangoFecha() (que trae todo un rango de fechas) o
+ * listarRecepcionesEnProceso() (que solo trae las que siguen abiertas), esta se usa desde el
+ * selector de Consolidado (botón "Buscar por Consecutivo") para encontrar un lote puntual sin
+ * importar cuándo se recibió ni si ya se había traído antes a este dispositivo — pedido de
+ * Nathalia (2026-09-11), mismo criterio que buscarLlegadaPendientePorConsecutivo() más abajo.
+ * Puede devolver más de una si el mismo Consecutivo se repitió por error (ver existeConsecutivo());
+ * a diferencia de esa función, aquí se devuelven TODAS — es quien llama (Consolidado.tsx) quien
+ * decide qué hacer si hay más de una.
+ */
+export async function buscarRecepcionesPorConsecutivo(consecutivo: string): Promise<Recepcion[]> {
+  const items = await listItems<Record<string, unknown>>(
+    'Recepciones',
+    `$expand=fields&$filter=fields/Consecutivo eq '${consecutivo.replace(/'/g, "''")}'&$top=50`,
+  )
+  return items.map(mapFieldsARecepcion)
+}
+
+/**
  * AsociadoId, GranjaId y PlacaVehiculoId son columnas de tipo Lookup en
  * SharePoint (ver Arquitectura-App-Recepcion-Cerdos.md sección 4): Graph solo
  * las acepta bajo el nombre `<Columna>LookupId` y con el id NUMÉRICO del
