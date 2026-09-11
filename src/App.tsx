@@ -145,7 +145,7 @@ function AppAutenticada() {
           />
           <Route path="/consolidado" element={<Consolidado usuario={usuario} />} />
           {/* Sin ProtegidoPorRol a propósito: "todos los perfiles pueden tener acceso a este reporte" (pedido explícito del usuario). */}
-          <Route path="/reporte" element={<Reporte />} />
+          <Route path="/reporte" element={<Reporte usuario={usuario} />} />
           <Route
             path="/admin/asociados"
             element={
