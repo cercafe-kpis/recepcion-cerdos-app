@@ -5,9 +5,10 @@ import { GruposAsociadosAdmin } from './GruposAsociadosAdmin'
 import { GranjasAdmin } from './GranjasAdmin'
 import { VehiculosAdmin } from './VehiculosAdmin'
 import { UsuariosAdmin } from './UsuariosAdmin'
+import { MantenimientoAdmin } from './MantenimientoAdmin'
 import type { Usuario } from '../../types/models'
 
-type Pestana = 'asociados' | 'gruposAsociados' | 'granjas' | 'vehiculos' | 'usuarios'
+type Pestana = 'asociados' | 'gruposAsociados' | 'granjas' | 'vehiculos' | 'usuarios' | 'mantenimiento'
 
 const PESTANAS: Array<{ id: Pestana; etiqueta: string }> = [
   { id: 'asociados', etiqueta: 'Asociados' },
@@ -15,17 +16,20 @@ const PESTANAS: Array<{ id: Pestana; etiqueta: string }> = [
   { id: 'granjas', etiqueta: 'Granjas' },
   { id: 'vehiculos', etiqueta: 'Vehículos' },
   { id: 'usuarios', etiqueta: 'Usuarios' },
+  { id: 'mantenimiento', etiqueta: 'Mantenimiento' },
 ]
 
 /**
- * Une las 5 pantallas de administración de maestros bajo una sola ruta
- * (/admin/asociados, enlazada desde Inicio.tsx como "Administrar Asociados,
- * Granjas y Vehículos"). Cada pestaña es un componente independiente — ver
+ * Une las 6 pantallas de administración bajo una sola ruta (/admin/asociados,
+ * enlazada desde Inicio.tsx como "Administrar Asociados, Granjas y
+ * Vehículos"). Cada pestaña es un componente independiente — ver
  * AsociadosAdmin.tsx (la pantalla de referencia original),
- * GruposAsociadosAdmin.tsx, GranjasAdmin.tsx, VehiculosAdmin.tsx y
- * UsuariosAdmin.tsx.
+ * GruposAsociadosAdmin.tsx, GranjasAdmin.tsx, VehiculosAdmin.tsx,
+ * UsuariosAdmin.tsx y MantenimientoAdmin.tsx (agregada 2026-09-11, ver el
+ * comentario ahí — borra la copia local de este dispositivo en Dexie,
+ * distinto de las otras 5 que administran catálogos en SharePoint).
  *
- * `usuario` se recibe de App.tsx y se reparte a las 5 pestañas para que cada
+ * `usuario` se recibe de App.tsx y se reparte a las 6 pestañas para que cada
  * una decida si mostrar Editar/Eliminar (ver ProtegidoPorRol.tsx — esta ruta
  * completa ya está restringida a Administrador, pero se deja el chequeo
  * también dentro de cada pantalla por si alguna se reutiliza en un lugar
@@ -57,6 +61,7 @@ export function CatalogosAdmin({ usuario }: { usuario: Usuario }) {
       {pestana === 'granjas' && <GranjasAdmin usuario={usuario} />}
       {pestana === 'vehiculos' && <VehiculosAdmin usuario={usuario} />}
       {pestana === 'usuarios' && <UsuariosAdmin usuario={usuario} />}
+      {pestana === 'mantenimiento' && <MantenimientoAdmin usuario={usuario} />}
     </div>
   )
 }
