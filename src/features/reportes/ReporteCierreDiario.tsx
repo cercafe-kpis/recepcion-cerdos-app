@@ -6,7 +6,6 @@ import {
   precargarLibreriaDeImagen,
 } from '../../utils/descargarImagen'
 import { marcarBeneficiadoMismoDia } from '../../graph/lists'
-import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import type { LlegadaPendiente, Recepcion } from '../../types/models'
 
 const BASE = import.meta.env.BASE_URL
@@ -38,16 +37,18 @@ function horaCorta(iso: string | undefined): string {
  *
  * También agrega, mezcladas cronológicamente con las Recepciones (ambas se ordenan por hora de
  * llegada), las LlegadasPendientes del día: camiones que llegaron y quedaron esperando sin
- * desembarcar todavía, registrados con "+ Registrar llegada en espera" más abajo. Esas filas salen
- * resaltadas en ámbar con "Pendiente" en las columnas que todavía no se conocen (desembarque,
- * cantidad de animales, #ICA) y sin botón de beneficiado — no hay Recepción real que marcar hasta
- * que exista. Se resuelven solas (Reporte.tsx las deja de mandar apenas aparece una Recepción con
- * su mismo Consecutivo) — ver el comentario grande de LlegadaPendiente en models.ts.
+ * desembarcar todavía, registrados desde la pestaña "Llegada en espera" de Recepcion.tsx (movida
+ * ahí 2026-09-11, cuarta ronda — antes se creaban con un botón aquí mismo). Esas filas salen
+ * resaltadas en ámbar con "Pendiente" en las columnas que todavía no se conocen (desembarque) y sin
+ * botón de beneficiado — no hay Recepción real que marcar hasta que exista; N.° animales y #ICA
+ * muestran el dato ya capturado en la llegada en espera cuando se conoce, o "Pendiente" si no. Se
+ * resuelven solas (Reporte.tsx las deja de mandar apenas aparece una Recepción con su mismo
+ * Consecutivo) — ver el comentario grande de LlegadaPendiente en models.ts.
  *
  * Igual que "Diario" y "Semanal" en Reporte.tsx, esta pestaña trabaja SOLO en línea: consulta
- * SharePoint directo al generar, al marcar/desmarcar una celda, y al registrar una llegada en
- * espera, sin pasar por Dexie ni por la cola de sincronización — un solo día no debería tener tantas
- * recepciones como para que valga la pena complicarla con soporte sin conexión.
+ * SharePoint directo al generar y al marcar/desmarcar una celda, sin pasar por Dexie ni por la cola
+ * de sincronización — un solo día no debería tener tantas recepciones como para que valga la pena
+ * complicarla con soporte sin conexión.
  */
 export function ReporteCierreDiario({
   fecha,
@@ -58,10 +59,6 @@ export function ReporteCierreDiario({
   asociadoNombre,
   granjaNombre,
   onCambio,
-  asociados,
-  granjas,
-  vehiculos,
-  onRegistrarLlegada,
 }: {
   fecha: string
   error: string | undefined
@@ -74,22 +71,6 @@ export function ReporteCierreDiario({
    * la lista viene y se actualiza desde Reporte.tsx, igual que tiquetesPorRecepcion en las otras
    * pestañas). */
   onCambio: (recepcionId: string, cambios: Partial<Recepcion>) => void
-  /** Para los selects del formulario "+ Registrar llegada en espera" — mismas listas (sin filtrar
-   * por Activo/Activa) que ya trae Reporte.tsx para las otras pestañas. */
-  asociados: Array<{ id: string; Title: string }>
-  granjas: Array<{ id: string; Title: string; AsociadoId: string }>
-  vehiculos: Array<{ id: string; Title: string }>
-  /** Crea la LlegadaPendiente en SharePoint (vía crearLlegadaPendiente() en graph/lists.ts) y
-   * refresca la lista en Reporte.tsx — lanza si Graph falla, para que el formulario de aquí abajo
-   * muestre el error sin cerrarse. */
-  onRegistrarLlegada: (datos: {
-    Hora: string
-    AsociadoId: string
-    GranjaId: string
-    Consecutivo: string
-    NumeroOrden?: string
-    PlacaVehiculoId?: string
-  }) => Promise<void>
 }) {
   const contenedorRef = useRef<HTMLDivElement>(null)
   const [marcando, setMarcando] = useState<string>()
@@ -103,65 +84,6 @@ export function ReporteCierreDiario({
   const [archivoPDF, setArchivoPDF] = useState<File>()
   const [errorPDF, setErrorPDF] = useState<string>()
   const [pdfListo, setPdfListo] = useState(false)
-
-  // Formulario inline "+ Registrar llegada en espera" (ver el comentario grande de arriba y el de
-  // LlegadaPendiente en models.ts) — un solo formulario a la vez, sin identificar ninguna fila
-  // existente (a diferencia del desembarque pendiente de la primera ronda, esto SIEMPRE crea un
-  // registro nuevo).
-  const [formAbierto, setFormAbierto] = useState(false)
-  const [formLlegada, setFormLlegada] = useState({
-    hora: '',
-    asociadoId: '',
-    granjaId: '',
-    consecutivo: '',
-    numeroOrden: '',
-    placaId: '',
-  })
-  const [guardandoLlegada, setGuardandoLlegada] = useState(false)
-  const [errorLlegada, setErrorLlegada] = useState<string>()
-
-  // Mismo patrón que granjasDelAsociado en Recepcion.tsx: filtra las granjas del formulario por el
-  // asociado elegido ahí mismo, no por ningún otro filtro de la pantalla.
-  const granjasDelAsociadoForm = useMemo(
-    () => (formLlegada.asociadoId ? granjas.filter((g) => g.AsociadoId === formLlegada.asociadoId) : granjas),
-    [granjas, formLlegada.asociadoId],
-  )
-
-  function abrirFormLlegada() {
-    setFormAbierto(true)
-    setFormLlegada({ hora: '', asociadoId: '', granjaId: '', consecutivo: '', numeroOrden: '', placaId: '' })
-    setErrorLlegada(undefined)
-  }
-
-  function cancelarFormLlegada() {
-    setFormAbierto(false)
-    setErrorLlegada(undefined)
-  }
-
-  async function guardarLlegada() {
-    if (guardandoLlegada) return
-    if (!formLlegada.hora || !formLlegada.asociadoId || !formLlegada.granjaId || !formLlegada.consecutivo.trim()) {
-      setErrorLlegada('Completa hora de llegada, asociado, granja y consecutivo.')
-      return
-    }
-    setGuardandoLlegada(true)
-    setErrorLlegada(undefined)
-    try {
-      await onRegistrarLlegada({
-        Hora: formLlegada.hora,
-        AsociadoId: formLlegada.asociadoId,
-        GranjaId: formLlegada.granjaId,
-        Consecutivo: formLlegada.consecutivo.trim(),
-        NumeroOrden: formLlegada.numeroOrden.trim() || undefined,
-        PlacaVehiculoId: formLlegada.placaId || undefined,
-      })
-      setFormAbierto(false)
-    } catch (err) {
-      setErrorLlegada(`No se pudo registrar: ${(err as Error).message}`)
-    } finally {
-      setGuardandoLlegada(false)
-    }
-  }
 
   // Mismo motivo que en ReporteDiarioLote.tsx / ReporteSemanalAsociado.tsx: precargar la librería
   // de captura de imagen apenas se ve el reporte, para que el primer clic en "Descargar imagen" o
@@ -284,86 +206,9 @@ export function ReporteCierreDiario({
         {formatearFecha(fecha)}
         {llegadasPendientes.length > 0 &&
           ` (${llegadasPendientes.length} en espera de desembarcar)`}{' '}
-        — toca la celda de "N.° animales" para marcar cuáles ya se beneficiaron el mismo día.
+        — toca la celda de "N.° animales" para marcar cuáles ya se beneficiaron el mismo día. Para registrar un
+        camión que acaba de llegar y quedó esperando, usa la pestaña "Llegada en espera" en Recepción.
       </p>
-
-      <div className="mb-3 print:hidden">
-        {!formAbierto ? (
-          <button
-            type="button"
-            onClick={abrirFormLlegada}
-            className="rounded-md border border-brand-navy px-3 py-1.5 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint"
-          >
-            + Registrar llegada en espera
-          </button>
-        ) : (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
-            <p className="mb-3 text-sm font-semibold text-amber-800">
-              Camión que llegó y quedó esperando (sin desembarcar todavía)
-            </p>
-            {errorLlegada && <p className="mb-2 text-xs text-brand-red">{errorLlegada}</p>}
-            <div className="grid gap-3 sm:grid-cols-3">
-              <CampoTexto
-                type="time"
-                etiqueta="Hora de llegada"
-                requerido
-                value={formLlegada.hora}
-                onChange={(e) => setFormLlegada((actual) => ({ ...actual, hora: e.target.value }))}
-              />
-              <CampoSelect
-                etiqueta="Asociado"
-                requerido
-                value={formLlegada.asociadoId}
-                onChange={(e) => setFormLlegada((actual) => ({ ...actual, asociadoId: e.target.value, granjaId: '' }))}
-                opciones={asociados.map((a) => ({ value: a.id, label: a.Title }))}
-              />
-              <CampoSelect
-                etiqueta="Granja"
-                requerido
-                value={formLlegada.granjaId}
-                onChange={(e) => setFormLlegada((actual) => ({ ...actual, granjaId: e.target.value }))}
-                opciones={granjasDelAsociadoForm.map((g) => ({ value: g.id, label: g.Title }))}
-              />
-              <CampoTexto
-                etiqueta="Consecutivo"
-                requerido
-                value={formLlegada.consecutivo}
-                onChange={(e) => setFormLlegada((actual) => ({ ...actual, consecutivo: e.target.value }))}
-              />
-              <CampoTexto
-                etiqueta="Número de orden"
-                ayuda="Opcional — si ya se sabe"
-                value={formLlegada.numeroOrden}
-                onChange={(e) => setFormLlegada((actual) => ({ ...actual, numeroOrden: e.target.value }))}
-              />
-              <CampoSelect
-                etiqueta="Placa del vehículo"
-                placeholder="Si ya se sabe…"
-                value={formLlegada.placaId}
-                onChange={(e) => setFormLlegada((actual) => ({ ...actual, placaId: e.target.value }))}
-                opciones={vehiculos.map((v) => ({ value: v.id, label: v.Title }))}
-              />
-            </div>
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                onClick={() => void guardarLlegada()}
-                disabled={guardandoLlegada}
-                className="rounded-md bg-brand-navy px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
-              >
-                {guardandoLlegada ? 'Guardando…' : 'Guardar llegada'}
-              </button>
-              <button
-                type="button"
-                onClick={cancelarFormLlegada}
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-600"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
 
       {filas.length === 0 ? (
         <p className="text-sm text-slate-500">No hay recepciones ni llegadas en espera registradas ese día.</p>
@@ -449,8 +294,12 @@ export function ReporteCierreDiario({
                       <td className="border border-slate-200 px-2 py-1.5 text-left">{granjaNombre(fila.lp)}</td>
                       <td className="border border-slate-200 px-2 py-1.5">{fila.lp.Consecutivo}</td>
                       <td className="border border-slate-200 px-2 py-1.5">{fila.lp.NumeroOrden ?? '—'}</td>
-                      <td className="border border-slate-200 px-2 py-1.5 font-semibold text-amber-700">Pendiente</td>
-                      <td className="border border-slate-200 px-2 py-1.5 font-semibold text-amber-700">Pendiente</td>
+                      <td className="border border-slate-200 px-2 py-1.5">
+                        {fila.lp.NumeroTotalCerdos ?? <span className="font-semibold text-amber-700">Pendiente</span>}
+                      </td>
+                      <td className="border border-slate-200 px-2 py-1.5">
+                        {fila.lp.GuiaSanitariaICA ?? <span className="font-semibold text-amber-700">Pendiente</span>}
+                      </td>
                     </tr>
                   ),
                 )}
