@@ -6,6 +6,7 @@ import { listarRecepcionesPorRangoFecha, listarTiquetesDeRecepcion, obtenerNoved
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { ReporteDiarioLote } from './ReporteDiarioLote'
 import { ReporteSemanalAsociado } from './ReporteSemanalAsociado'
+import { ReporteCierreDiario } from './ReporteCierreDiario'
 import type { ConsolidadoTiquete, NovedadCorral, Recepcion } from '../../types/models'
 
 function hoyISO() {
@@ -35,15 +36,20 @@ function haceDiasISO(dias: number) {
  *    recepciones de todas las granjas/asociados de ese grupo en el rango de
  *    fechas elegido (ej. el grupo HBM con sus granjas La Fabiola, Los
  *    Mellos, Miraflores, El Trébol y El Jazmín sale en un único PDF).
+ *  - "Cierre diario" (agregada 2026-09-11, a pedido de Nathalia): la tabla que arman al final del
+ *    día con TODAS las recepciones del día (mismo cuadro que ya usaban en Excel), donde se toca la
+ *    celda de "N.° animales" para marcar/desmarcar cuáles ya se beneficiaron el mismo día —
+ *    reemplaza la práctica manual de pintar esa celda de azul. Ver el comentario de
+ *    `BeneficiadoMismoDia` en models.ts y el de ReporteCierreDiario.tsx.
  *
- * Ninguna de las dos pestañas descarga nada en segundo plano ni lo guarda
- * en Dexie: ambas consultan SharePoint directo, solo al tocar "Generar",
+ * Ninguna de las tres pestañas descarga nada en segundo plano ni lo guarda
+ * en Dexie: las tres consultan SharePoint directo, solo al tocar "Generar",
  * para no reintroducir el problema de que cada dispositivo vaya
  * acumulando cada vez más historial (igual que descargarRecepcionesEnProceso
  * en syncService.ts, que sigue trayendo solo las recepciones "En proceso").
  */
 export function Reporte() {
-  const [tab, setTab] = useState<'diario' | 'semanal'>('diario')
+  const [tab, setTab] = useState<'diario' | 'semanal' | 'cierre'>('diario')
 
   const asociados = useLiveQuery(() => db.asociados.toArray(), []) ?? []
   const granjas = useLiveQuery(() => db.granjas.toArray(), []) ?? []
@@ -83,17 +89,29 @@ export function Reporte() {
         >
           Semanal
         </button>
+        <button
+          type="button"
+          onClick={() => setTab('cierre')}
+          className={clsx(
+            'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+            tab === 'cierre' ? 'bg-brand-navy text-white' : 'text-slate-600 hover:bg-brand-navy-tint',
+          )}
+        >
+          Cierre diario
+        </button>
       </div>
 
       {tab === 'diario' ? (
         <ReporteDiario mapaVehiculos={mapaVehiculos} />
-      ) : (
+      ) : tab === 'semanal' ? (
         <ReporteSemanal
           mapaAsociados={mapaAsociados}
           mapaGranjas={mapaGranjas}
           mapaVehiculos={mapaVehiculos}
           gruposAsociados={gruposAsociados}
         />
+      ) : (
+        <ReporteCierre mapaAsociados={mapaAsociados} mapaGranjas={mapaGranjas} />
       )}
     </div>
   )
@@ -313,6 +331,79 @@ function ReporteSemanal({
           )}
         </>
       )}
+    </div>
+  )
+}
+
+/**
+ * "Cierre diario" — ver el comentario grande de Reporte() y el de ReporteCierreDiario.tsx. Este
+ * componente solo trae los datos (consulta directa a Graph, sin Dexie, igual que ReporteDiario /
+ * ReporteSemanal de arriba) y resuelve nombres de Asociado/Granja; toda la tabla y la interacción de
+ * marcar/desmarcar viven en ReporteCierreDiario.tsx.
+ *
+ * Se ordena por HoraLlegadaVehiculo (no por Consecutivo, como "Diario") para que el orden de las
+ * filas coincida con el orden cronológico de llegada del cuadro de referencia que ya usaban en
+ * Excel.
+ */
+function ReporteCierre({
+  mapaAsociados,
+  mapaGranjas,
+}: {
+  mapaAsociados: Map<string, { Title: string }>
+  mapaGranjas: Map<string, { Title: string }>
+}) {
+  const [fecha, setFecha] = useState(hoyISO())
+  const [cargando, setCargando] = useState(false)
+  const [error, setError] = useState<string>()
+  const [generado, setGenerado] = useState(false)
+  const [recepciones, setRecepciones] = useState<Recepcion[]>([])
+
+  async function generar() {
+    setCargando(true)
+    setError(undefined)
+    setGenerado(false)
+    try {
+      const traidas = await listarRecepcionesPorRangoFecha(fecha, fecha)
+      traidas.sort((a, b) => a.HoraLlegadaVehiculo.localeCompare(b.HoraLlegadaVehiculo))
+      setRecepciones(traidas)
+      setGenerado(true)
+    } catch (err) {
+      setError(`No se pudo generar el reporte: ${(err as Error).message}`)
+    } finally {
+      setCargando(false)
+    }
+  }
+
+  function onCambio(recepcionId: string, cambios: Partial<Recepcion>) {
+    setRecepciones((actuales) => actuales.map((r) => (r.id === recepcionId ? { ...r, ...cambios } : r)))
+  }
+
+  return (
+    <div>
+      <div className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-4 print:hidden">
+        <div className="max-w-xs">
+          <CampoTexto type="date" etiqueta="Fecha" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+        </div>
+        <button
+          type="button"
+          onClick={() => void generar()}
+          disabled={cargando || !navigator.onLine}
+          title={navigator.onLine ? undefined : 'Sin conexión — no se puede generar el reporte'}
+          className="rounded-md bg-brand-navy px-3 py-2 text-sm font-medium text-white hover:bg-brand-navy/90 disabled:bg-slate-300"
+        >
+          {cargando ? 'Generando…' : 'Generar cierre del día'}
+        </button>
+      </div>
+
+      <ReporteCierreDiario
+        fecha={fecha}
+        error={error}
+        generado={generado}
+        recepciones={recepciones}
+        asociadoNombre={(r) => mapaAsociados.get(r.AsociadoId)?.Title ?? '—'}
+        granjaNombre={(r) => mapaGranjas.get(r.GranjaId)?.Title ?? '—'}
+        onCambio={onCambio}
+      />
     </div>
   )
 }
