@@ -17,8 +17,10 @@ export const recepcionSchema = z
     FechaRecepcion: z.string().min(1, 'Obligatorio'),
     HoraProgramada: z.string().min(1, 'Obligatorio'),
     HoraLlegadaVehiculo: z.string().min(1, 'Obligatorio'),
-    HoraInicioDesembarque: z.string().min(1, 'Obligatorio'),
-    HoraFinalDesembarque: z.string().min(1, 'Obligatorio'),
+    // Opcionales (revertido a esto 2026-09-11, octava ronda, a pedido de Nathalia) — ver el
+    // comentario grande junto a estos 2 campos en src/types/models.ts.
+    HoraInicioDesembarque: z.string().optional(),
+    HoraFinalDesembarque: z.string().optional(),
     AsociadoId: z.string().min(1, 'Selecciona un asociado'),
     GranjaId: z.string().min(1, 'Selecciona una granja'),
     NumeroTotalCerdos: z.coerce.number().int('Debe ser un número entero').positive('Debe ser mayor a 0'),
