@@ -5,6 +5,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../../offline/db'
 import { sincronizar } from '../../offline/syncService'
 import { CampoCheckbox, CampoSelect, CampoTexto, SeccionFormulario } from '../../components/CamposFormulario'
+import { buscarLlegadaPendientePorConsecutivo } from '../../graph/lists'
 import { recepcionSchema, type RecepcionFormInput, type RecepcionFormValues } from './recepcionSchema'
 import type { Recepcion as RecepcionModelo, Usuario } from '../../types/models'
 
@@ -107,11 +108,61 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
     handleSubmit,
     watch,
     reset,
+    setValue,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<RecepcionFormInput, unknown, RecepcionFormValues>({
     resolver: zodResolver(recepcionSchema),
     defaultValues: VALORES_INICIALES,
   })
+
+  // "Cargar datos de llegada en espera" (pedido de Nathalia, 2026-09-11, tercera ronda): evita
+  // volver a digitar Asociado/Granja/N. Orden/Placa/Hora de llegada cuando ese camión ya se había
+  // registrado como "en espera" desde "Cierre diario" (ver LlegadaPendiente en models.ts). A
+  // pedido explícito con 3 preguntas: (1) botón aparte, no automático al escribir el Consecutivo —
+  // así no dispara búsquedas de más mientras se escribe; (2) solo funciona con conexión, por ahora
+  // — igual que "Cierre diario" ya trabaja, sin bajar LlegadasPendientes a Dexie; si no hay señal,
+  // simplemente no se auto-completa nada y se sigue llenando a mano como siempre; (3) el registro
+  // de LlegadaPendiente NO se borra ni se toca al usarlo — sigue resolviéndose solo en "Cierre
+  // diario" en cuanto esta Recepción se sincronice con el mismo Consecutivo.
+  const [buscandoLlegada, setBuscandoLlegada] = useState(false)
+  const [mensajeLlegada, setMensajeLlegada] = useState<string>()
+  const [errorLlegada, setErrorLlegada] = useState<string>()
+
+  async function cargarLlegadaPendiente() {
+    const consecutivo = getValues('Consecutivo').trim()
+    setMensajeLlegada(undefined)
+    setErrorLlegada(undefined)
+    if (!consecutivo) {
+      setErrorLlegada('Escribe primero el Consecutivo.')
+      return
+    }
+    setBuscandoLlegada(true)
+    try {
+      const llegada = await buscarLlegadaPendientePorConsecutivo(consecutivo)
+      if (!llegada) {
+        setMensajeLlegada(`No se encontró ninguna llegada en espera con el Consecutivo "${consecutivo}".`)
+        return
+      }
+      // FechaLlegada/HoraLlegadaVehiculo de LlegadaPendiente son fecha-hora ISO completa (igual que
+      // en Recepcion) — se recorta a "YYYY-MM-DD" y "HH:MM" para los <input> de fecha/hora. Se
+      // sobrescribe FechaRecepcion (no solo la hora) a propósito: si el camión llegó un día y
+      // desembarcó al siguiente, la Recepción debe quedar fechada el día en que de verdad llegó —
+      // si no, "Cierre diario" de ese día de llegada nunca encontraría esta Recepción para resolver
+      // solo la fila "Pendiente" (ver el comentario de LlegadaPendiente en models.ts).
+      setValue('FechaRecepcion', llegada.FechaLlegada.slice(0, 10))
+      setValue('HoraLlegadaVehiculo', llegada.HoraLlegadaVehiculo.slice(11, 16))
+      setValue('AsociadoId', llegada.AsociadoId)
+      setValue('GranjaId', llegada.GranjaId)
+      if (llegada.NumeroOrden) setValue('NumeroOrden', llegada.NumeroOrden)
+      if (llegada.PlacaVehiculoId) setValue('PlacaVehiculoId', llegada.PlacaVehiculoId)
+      setMensajeLlegada('Datos de la llegada en espera cargados — revisa y completa el resto del formulario.')
+    } catch (err) {
+      setErrorLlegada(`No se pudo buscar: ${(err as Error).message}`)
+    } finally {
+      setBuscandoLlegada(false)
+    }
+  }
 
   // Se capturan aparte (en vez de solo hacer spread de register(...) en el <input>) porque estos
   // dos campos necesitan reformatear lo que la persona escribió ANTES de que react-hook-form lo
@@ -172,6 +223,24 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
         <SeccionFormulario titulo="Identificación del lote">
           <CampoTexto etiqueta="Consecutivo" requerido {...register('Consecutivo')} error={errors.Consecutivo?.message} />
           <CampoTexto etiqueta="Número de orden" requerido {...register('NumeroOrden')} error={errors.NumeroOrden?.message} />
+          <div className="sm:col-span-2 -mt-2">
+            <button
+              type="button"
+              onClick={() => void cargarLlegadaPendiente()}
+              disabled={buscandoLlegada || !navigator.onLine}
+              title={navigator.onLine ? undefined : 'Sin conexión — no se puede buscar'}
+              className="rounded-md border border-brand-navy px-3 py-1.5 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint disabled:opacity-50"
+            >
+              {buscandoLlegada ? 'Buscando…' : 'Cargar datos de llegada en espera'}
+            </button>
+            <p className="mt-1 text-xs text-slate-400">
+              Si este camión ya quedó registrado como "en espera" en Cierre diario, escribe su Consecutivo arriba y
+              toca este botón para traer Asociado, Granja, N.° de orden, Placa y Hora de llegada sin volver a
+              digitarlos.
+            </p>
+            {mensajeLlegada && <p className="mt-1 text-xs text-emerald-600">{mensajeLlegada}</p>}
+            {errorLlegada && <p className="mt-1 text-xs text-brand-red">{errorLlegada}</p>}
+          </div>
           <CampoTexto type="date" etiqueta="Fecha de recepción" requerido {...register('FechaRecepcion')} error={errors.FechaRecepcion?.message} />
           <CampoTexto type="time" etiqueta="Hora programada" requerido {...register('HoraProgramada')} error={errors.HoraProgramada?.message} />
           <CampoTexto type="time" etiqueta="Hora de llegada del vehículo" requerido {...register('HoraLlegadaVehiculo')} error={errors.HoraLlegadaVehiculo?.message} />
