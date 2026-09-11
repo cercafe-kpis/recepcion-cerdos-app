@@ -6,7 +6,7 @@ import {
   precargarLibreriaDeImagen,
 } from '../../utils/descargarImagen'
 import { marcarBeneficiadoMismoDia } from '../../graph/lists'
-import type { LlegadaPendiente, Recepcion } from '../../types/models'
+import type { Recepcion } from '../../types/models'
 
 const BASE = import.meta.env.BASE_URL
 
@@ -20,7 +20,9 @@ function formatearFecha(iso: string): string {
 }
 
 /** "HH:MM" a partir de la fecha-hora ISO completa que se guarda en Recepcion — mismo patrón que
- * horaCorta() en ReporteDiarioLote.tsx. */
+ * horaCorta() en ReporteDiarioLote.tsx. Recibe `undefined` con normalidad: HoraInicioDesembarque y
+ * HoraFinalDesembarque son opcionales (ver el comentario grande junto a ellas en models.ts) y
+ * simplemente se muestran como "—" cuando el lote llegó después de la jornada y no se conocieron. */
 function horaCorta(iso: string | undefined): string {
   if (!iso || iso.length < 16) return '—'
   return iso.slice(11, 16)
@@ -35,15 +37,12 @@ function horaCorta(iso: string | undefined): string {
  * desmarcarla, y el color se guarda de una vez en `Recepcion.BeneficiadoMismoDia` (ver el
  * comentario de ese campo en models.ts) — no hay una columna de check aparte.
  *
- * También agrega, mezcladas cronológicamente con las Recepciones (ambas se ordenan por hora de
- * llegada), las LlegadasPendientes del día: camiones que llegaron y quedaron esperando sin
- * desembarcar todavía, registrados desde la pestaña "Llegada en espera" de Recepcion.tsx (movida
- * ahí 2026-09-11, cuarta ronda — antes se creaban con un botón aquí mismo). Esas filas salen
- * resaltadas en ámbar con "Pendiente" en las columnas que todavía no se conocen (desembarque) y sin
- * botón de beneficiado — no hay Recepción real que marcar hasta que exista; N.° animales y #ICA
- * muestran el dato ya capturado en la llegada en espera cuando se conoce, o "Pendiente" si no. Se
- * resuelven solas (Reporte.tsx las deja de mandar apenas aparece una Recepción con su mismo
- * Consecutivo) — ver el comentario grande de LlegadaPendiente en models.ts.
+ * NOTA HISTÓRICA (2026-09-11): entre la segunda y la octava ronda de esa fecha esta tabla también
+ * mezclaba, resaltadas en ámbar, las "LlegadasPendientes" del día (camiones que llegaron y quedaron
+ * esperando sin desembarcar, con "Pendiente" en las columnas de desembarque) — ver el comentario
+ * grande de `LlegadaPendiente`, ya retirado de models.ts. Nathalia pidió deshacer ese subsistema por
+ * completo; el reemplazo es simplemente dejar Inicio/Termina desembarque en blanco ("—") cuando el
+ * lote llegó después de la jornada, sin ningún registro aparte.
  *
  * Igual que "Diario" y "Semanal" en Reporte.tsx, esta pestaña trabaja SOLO en línea: consulta
  * SharePoint directo al generar y al marcar/desmarcar una celda, sin pasar por Dexie ni por la cola
@@ -55,7 +54,6 @@ export function ReporteCierreDiario({
   error,
   generado,
   recepciones,
-  llegadasPendientes,
   asociadoNombre,
   granjaNombre,
   onCambio,
@@ -64,7 +62,6 @@ export function ReporteCierreDiario({
   error: string | undefined
   generado: boolean
   recepciones: Recepcion[]
-  llegadasPendientes: LlegadaPendiente[]
   asociadoNombre: (r: { AsociadoId: string }) => string
   granjaNombre: (r: { GranjaId: string }) => string
   /** Avisa al padre que una recepción cambió de estado (Cierre diario no guarda su propia copia —
@@ -92,13 +89,13 @@ export function ReporteCierreDiario({
     precargarLibreriaDeImagen()
   }, [])
 
-  // El PDF ya armado queda obsoleto en cuanto alguien marca/desmarca una celda, o aparece/se resuelve
-  // una llegada pendiente, después de generarlo — sin este reseteo, "Compartir / Descargar PDF"
-  // seguiría reusando uno viejo sin el cambio.
+  // El PDF ya armado queda obsoleto en cuanto alguien marca/desmarca una celda después de
+  // generarlo — sin este reseteo, "Compartir / Descargar PDF" seguiría reusando uno viejo sin el
+  // cambio.
   useEffect(() => {
     setArchivoPDF(undefined)
     setPdfListo(false)
-  }, [recepciones, llegadasPendientes])
+  }, [recepciones])
 
   async function alternarBeneficiado(r: Recepcion) {
     if (!r.spId || marcando) return
@@ -161,16 +158,13 @@ export function ReporteCierreDiario({
     }
   }
 
-  // Recepciones y llegadas pendientes mezcladas en una sola lista, ordenada por hora de llegada del
-  // vehículo — mismo criterio cronológico con el que ReporteCierre en Reporte.tsx ya ordena las
-  // Recepciones, para que las filas de espera aparezcan intercaladas donde de verdad llegaron, no
-  // todas al final.
-  type Fila = { tipo: 'recepcion'; hora: string; r: Recepcion } | { tipo: 'pendiente'; hora: string; lp: LlegadaPendiente }
-  const filas = useMemo<Fila[]>(() => {
-    const deRecepciones: Fila[] = recepciones.map((r) => ({ tipo: 'recepcion', hora: r.HoraLlegadaVehiculo, r }))
-    const deLlegadas: Fila[] = llegadasPendientes.map((lp) => ({ tipo: 'pendiente', hora: lp.HoraLlegadaVehiculo, lp }))
-    return [...deRecepciones, ...deLlegadas].sort((a, b) => a.hora.localeCompare(b.hora))
-  }, [recepciones, llegadasPendientes])
+  // Ordenadas por hora de llegada del vehículo — mismo criterio cronológico con el que ReporteCierre
+  // en Reporte.tsx ya trae las Recepciones, para que la tabla coincida con el orden en que de verdad
+  // llegaron los camiones ese día.
+  const filas = useMemo(
+    () => [...recepciones].sort((a, b) => a.HoraLlegadaVehiculo.localeCompare(b.HoraLlegadaVehiculo)),
+    [recepciones],
+  )
 
   if (!generado) return error ? <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">{error}</p> : null
 
@@ -203,15 +197,11 @@ export function ReporteCierreDiario({
 
       <p className="mb-2 text-sm text-slate-500 print:hidden">
         {recepciones.length} lote{recepciones.length === 1 ? '' : 's'} recibido{recepciones.length === 1 ? '' : 's'} el{' '}
-        {formatearFecha(fecha)}
-        {llegadasPendientes.length > 0 &&
-          ` (${llegadasPendientes.length} en espera de desembarcar)`}{' '}
-        — toca la celda de "N.° animales" para marcar cuáles ya se beneficiaron el mismo día. Para registrar un
-        camión que acaba de llegar y quedó esperando, usa la pestaña "Llegada en espera" en Recepción.
+        {formatearFecha(fecha)} — toca la celda de "N.° animales" para marcar cuáles ya se beneficiaron el mismo día.
       </p>
 
       {filas.length === 0 ? (
-        <p className="text-sm text-slate-500">No hay recepciones ni llegadas en espera registradas ese día.</p>
+        <p className="text-sm text-slate-500">No hay recepciones registradas ese día.</p>
       ) : (
         <section
           ref={contenedorRef}
@@ -247,62 +237,39 @@ export function ReporteCierreDiario({
                 </tr>
               </thead>
               <tbody>
-                {filas.map((fila, i) =>
-                  fila.tipo === 'recepcion' ? (
-                    <tr
-                      key={fila.r.id}
-                      data-pdf-bloque=""
-                      className={i % 2 === 1 ? 'bg-purple-50/30' : 'bg-white'}
-                    >
-                      <td className="border border-slate-200 px-2 py-1.5">{formatearFecha(fila.r.FechaRecepcion)}</td>
-                      <td className="border border-slate-200 px-2 py-1.5">{horaCorta(fila.r.HoraLlegadaVehiculo)}</td>
-                      <td className="border border-slate-200 px-2 py-1.5">{horaCorta(fila.r.HoraInicioDesembarque)}</td>
-                      <td className="border border-slate-200 px-2 py-1.5">{horaCorta(fila.r.HoraFinalDesembarque)}</td>
-                      <td className="border border-slate-200 px-2 py-1.5 text-left">{asociadoNombre(fila.r)}</td>
-                      <td className="border border-slate-200 px-2 py-1.5 text-left">{granjaNombre(fila.r)}</td>
-                      <td className="border border-slate-200 px-2 py-1.5">{fila.r.Consecutivo}</td>
-                      <td className="border border-slate-200 px-2 py-1.5">{fila.r.NumeroOrden}</td>
-                      <td className="border border-slate-200 p-0">
-                        <button
-                          type="button"
-                          onClick={() => void alternarBeneficiado(fila.r)}
-                          disabled={!fila.r.spId || marcando === fila.r.id}
-                          title={
-                            fila.r.BeneficiadoMismoDia
-                              ? 'Beneficiado el mismo día — toca para desmarcar'
-                              : 'Toca para marcar como beneficiado el mismo día'
-                          }
-                          className={
-                            'block w-full px-2 py-1.5 font-semibold transition-colors disabled:cursor-not-allowed ' +
-                            (fila.r.BeneficiadoMismoDia
-                              ? 'bg-sky-400 text-white hover:bg-sky-500'
-                              : 'bg-transparent text-slate-800 hover:bg-slate-100 print:hover:bg-transparent')
-                          }
-                        >
-                          {fila.r.BeneficiadoMismoDia ? `✓ ${fila.r.NumeroTotalCerdos}` : fila.r.NumeroTotalCerdos}
-                        </button>
-                      </td>
-                      <td className="border border-slate-200 px-2 py-1.5">{fila.r.GuiaSanitariaICA}</td>
-                    </tr>
-                  ) : (
-                    <tr key={`lp-${fila.lp.id}`} data-pdf-bloque="" className="bg-amber-50">
-                      <td className="border border-slate-200 px-2 py-1.5">{formatearFecha(fecha)}</td>
-                      <td className="border border-slate-200 px-2 py-1.5">{horaCorta(fila.lp.HoraLlegadaVehiculo)}</td>
-                      <td className="border border-slate-200 px-2 py-1.5 font-semibold text-amber-700">Pendiente</td>
-                      <td className="border border-slate-200 px-2 py-1.5 font-semibold text-amber-700">Pendiente</td>
-                      <td className="border border-slate-200 px-2 py-1.5 text-left">{asociadoNombre(fila.lp)}</td>
-                      <td className="border border-slate-200 px-2 py-1.5 text-left">{granjaNombre(fila.lp)}</td>
-                      <td className="border border-slate-200 px-2 py-1.5">{fila.lp.Consecutivo}</td>
-                      <td className="border border-slate-200 px-2 py-1.5">{fila.lp.NumeroOrden ?? '—'}</td>
-                      <td className="border border-slate-200 px-2 py-1.5">
-                        {fila.lp.NumeroTotalCerdos ?? <span className="font-semibold text-amber-700">Pendiente</span>}
-                      </td>
-                      <td className="border border-slate-200 px-2 py-1.5">
-                        {fila.lp.GuiaSanitariaICA ?? <span className="font-semibold text-amber-700">Pendiente</span>}
-                      </td>
-                    </tr>
-                  ),
-                )}
+                {filas.map((r, i) => (
+                  <tr key={r.id} data-pdf-bloque="" className={i % 2 === 1 ? 'bg-purple-50/30' : 'bg-white'}>
+                    <td className="border border-slate-200 px-2 py-1.5">{formatearFecha(r.FechaRecepcion)}</td>
+                    <td className="border border-slate-200 px-2 py-1.5">{horaCorta(r.HoraLlegadaVehiculo)}</td>
+                    <td className="border border-slate-200 px-2 py-1.5">{horaCorta(r.HoraInicioDesembarque)}</td>
+                    <td className="border border-slate-200 px-2 py-1.5">{horaCorta(r.HoraFinalDesembarque)}</td>
+                    <td className="border border-slate-200 px-2 py-1.5 text-left">{asociadoNombre(r)}</td>
+                    <td className="border border-slate-200 px-2 py-1.5 text-left">{granjaNombre(r)}</td>
+                    <td className="border border-slate-200 px-2 py-1.5">{r.Consecutivo}</td>
+                    <td className="border border-slate-200 px-2 py-1.5">{r.NumeroOrden}</td>
+                    <td className="border border-slate-200 p-0">
+                      <button
+                        type="button"
+                        onClick={() => void alternarBeneficiado(r)}
+                        disabled={!r.spId || marcando === r.id}
+                        title={
+                          r.BeneficiadoMismoDia
+                            ? 'Beneficiado el mismo día — toca para desmarcar'
+                            : 'Toca para marcar como beneficiado el mismo día'
+                        }
+                        className={
+                          'block w-full px-2 py-1.5 font-semibold transition-colors disabled:cursor-not-allowed ' +
+                          (r.BeneficiadoMismoDia
+                            ? 'bg-sky-400 text-white hover:bg-sky-500'
+                            : 'bg-transparent text-slate-800 hover:bg-slate-100 print:hover:bg-transparent')
+                        }
+                      >
+                        {r.BeneficiadoMismoDia ? `✓ ${r.NumeroTotalCerdos}` : r.NumeroTotalCerdos}
+                      </button>
+                    </td>
+                    <td className="border border-slate-200 px-2 py-1.5">{r.GuiaSanitariaICA}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
