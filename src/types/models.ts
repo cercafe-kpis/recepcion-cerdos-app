@@ -158,6 +158,42 @@ export interface Recepcion extends CapturaOffline {
   BeneficiadoMismoDia: boolean
 }
 
+/**
+ * Agregada 2026-09-11 (segunda ronda), a pedido de Nathalia: registro APARTE y mínimo para el
+ * camión que llega y queda esperando en el patio sin desembarcar el mismo día — Recepcion.tsx sigue
+ * exigiendo las 4 horas y se sigue llenando UNA sola vez, completa, cuando el desembarque ya
+ * terminó (exactamente como siempre, sin ningún hueco: cantidad de animales, peso, novedades, etc.
+ * solo se conocen en ese momento). Este registro solo guarda lo que YA se sabe apenas llega el
+ * camión — confirmado con Nathalia: Hora de llegada, Asociado, Granja y Consecutivo; Número de
+ * orden y Placa quedan opcionales por si también se saben ya.
+ *
+ * Vive en la lista de SharePoint `LlegadasPendientes`, separada de `Recepciones` — no es un Lookup
+ * hacia Recepcion ni al revés. Se resuelve SOLO (nunca a mano): en `ReporteCierre` de Reporte.tsx,
+ * cualquier LlegadaPendiente cuyo Consecutivo ya aparezca entre las Recepciones de esa fecha se
+ * deja de mostrar — significa que esa Recepción ya se completó. Por eso Consecutivo es el campo
+ * clave de este registro, igual que lo es en Recepcion.
+ *
+ * A diferencia de Recepcion/Ubicacion/NovedadCorral, este registro NO tiene captura sin conexión:
+ * se crea DIRECTO contra Graph desde la pestaña "Cierre diario" de Reporte.tsx (botón "+ Registrar
+ * llegada en espera"), que ya trabaja solo en línea por diseño — mismo criterio que
+ * marcarBeneficiadoMismoDia() en src/graph/lists.ts. Por eso no extiende CapturaOffline: no hace
+ * falta EstadoSync ni distinguir CapturadaEn/RecibidaEn, con un solo `CreadoEn` alcanza (mismo
+ * patrón simple que RecepcionLogEntry, más abajo).
+ */
+export interface LlegadaPendiente {
+  id: string
+  Title: string
+  FechaLlegada: string
+  HoraLlegadaVehiculo: string
+  AsociadoId: string
+  GranjaId: string
+  Consecutivo: string
+  NumeroOrden?: string
+  PlacaVehiculoId?: string
+  CapturadoPor: string
+  CreadoEn: string
+}
+
 export interface Ubicacion extends CapturaOffline {
   id: string
   RecepcionId: string
