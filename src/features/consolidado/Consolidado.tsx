@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { db } from '../../offline/db'
 import { cachearTiquetesDeRecepcion, guardarEdicionTiqueteLocal, sincronizar } from '../../offline/syncService'
 import {
+  buscarRecepcionesPorConsecutivo,
   generarTiquetesFaltantes,
   generarTiquetesNovedadCorral,
   listarRecepcionesPorRangoFecha,
@@ -14,6 +15,10 @@ import {
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { ReporteDiarioLote } from '../reportes/ReporteDiarioLote'
 import type { ConsolidadoTiquete, Destino, NovedadCorral, Usuario } from '../../types/models'
+
+function hoyISO() {
+  return new Date().toISOString().slice(0, 10)
+}
 
 /**
  * El objetivo de todo el flujo (Recepción → Ubicación/Novedades en Corral →
@@ -32,6 +37,8 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [reabriendo, setReabriendo] = useState(false)
   const [fechaBusqueda, setFechaBusqueda] = useState('')
   const [buscando, setBuscando] = useState(false)
+  const [consecutivoBusqueda, setConsecutivoBusqueda] = useState('')
+  const [buscandoConsecutivo, setBuscandoConsecutivo] = useState(false)
   const [error, setError] = useState<string>()
   const [verReporteInmediato, setVerReporteInmediato] = useState(false)
   const [novedadCorral, setNovedadCorral] = useState<NovedadCorral>()
@@ -43,18 +50,58 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
       [],
     ) ?? []
 
+  // A pedido de Nathalia (2026-09-11): el desplegable de "Recepción" ya no muestra TODO el
+  // historial que este dispositivo tenga acumulado en Dexie (crecía cada vez más con los meses,
+  // sobre todo si se usaba "Buscar por fecha" seguido) — por defecto solo se ven los lotes
+  // recibidos HOY. `idsFueraDeHoy` guarda, aparte, los ids de cualquier Recepción que un buscador
+  // (por fecha o por Consecutivo, ambos más abajo) haya traído a la vista en esta sesión aunque no
+  // sea de hoy — así siguen apareciendo en el desplegable sin que este vuelva a mostrar todo el
+  // historial completo.
+  const [idsFueraDeHoy, setIdsFueraDeHoy] = useState<string[]>([])
+  const hoy = hoyISO()
+  const recepcionesVisibles = useMemo(
+    () => recepciones.filter((r) => r.FechaRecepcion === hoy || idsFueraDeHoy.includes(r.id)),
+    [recepciones, hoy, idsFueraDeHoy],
+  )
+
   const recepcion = useMemo(() => recepciones.find((r) => r.id === recepcionId), [recepciones, recepcionId])
 
-  // Único candado de edición, a pedido explícito del usuario: el lote se
-  // bloquea para no-Administradores solo cuando ALGUIEN lo marca a mano como
-  // terminado con el botón "Terminar proceso" (ver terminarProceso() más
-  // abajo, que llama a marcarLoteCompleto()) — nunca automáticamente. Antes
-  // se cerraba solo apenas todos los tiquetes tenían Tiquete+Destino (ver la
-  // nota histórica sobre cerrarLotesCompletos() en syncService.ts), pero eso
-  // podía bloquear un Fortuito antes de alcanzar a ponerle la Factura,
-  // justo cuando el proceso se hace en varias partes/sesiones separadas.
+  // Candado de edición del LOTE completo, a pedido explícito del usuario: se bloquea para
+  // no-Administradores solo cuando ALGUIEN lo marca a mano como terminado con el botón "Terminar
+  // proceso" (ver terminarProceso() más abajo, que llama a marcarLoteCompleto()) — nunca
+  // automáticamente. Antes se cerraba solo apenas todos los tiquetes tenían Tiquete+Destino (ver la
+  // nota histórica sobre cerrarLotesCompletos() en syncService.ts), pero eso podía bloquear un
+  // Fortuito antes de alcanzar a ponerle la Factura, justo cuando el proceso se hace en varias
+  // partes/sesiones separadas. Nathalia confirmó explícitamente (2026-09-11) dejar esta parte tal
+  // cual: un Administrador siempre puede seguir editando un lote ya cerrado, viejo y nuevo.
   const loteCompleto = recepcion?.EstadoLote === 'Completo'
   const soloLectura = usuario.Rol === 'Consultor' || (loteCompleto && !esAdmin)
+
+  /**
+   * Candado adicional, por TIQUETE individual (2026-09-11, a pedido de Nathalia): Auditor y
+   * Supervisor pueden completar cualquier tiquete que todavía esté vacío — sin importar si es de
+   * una novedad vieja o de una que se acaba de capturar en Ubicación/Novedades en Corral — pero en
+   * cuanto un tiquete YA tiene Tiquete+Destino cargados, solo un Administrador puede seguir
+   * modificándolo. Antes, mientras el lote seguía "En proceso", cualquier perfil que no fuera
+   * Consultor podía editar CUALQUIER tiquete del lote, incluido uno que otra persona ya había
+   * completado — este candado nuevo cierra ese hueco sin tocar el candado de LOTE de arriba (que
+   * sigue igual: Consultor siempre bloqueado, y un lote "Completo" sigue bloqueando a todo el que
+   * no sea Administrador).
+   *
+   * "Ya tiene Tiquete+Destino cargados" se lee de `EstadoTiquete === 'Completo'` (lo calcula
+   * SharePoint apenas el tiquete tiene esos 2 campos, ver actualizarTiquete() en
+   * src/graph/lists.ts) y NO de tiqueteYaCompletado() de más abajo — a propósito, porque
+   * tiqueteYaCompletado() además exige Factura en los Fortuitos, y ese requisito es solo para la
+   * etiqueta "Falta factura" y el aviso de terminarProceso(), no para este candado. Como
+   * `EstadoTiquete` en Dexie solo se pone al día con un refresco explícito contra SharePoint (ver
+   * el comentario grande de terminarProceso()), quien acaba de escribir un Tiquete/Destino todavía
+   * puede corregirlo hasta que se refresque — recién ahí queda bloqueado para su propio perfil.
+   */
+  function filaSoloLectura(t: ConsolidadoTiquete): boolean {
+    if (soloLectura) return true
+    if (esAdmin) return false
+    return t.EstadoTiquete === 'Completo'
+  }
 
   const granja = useLiveQuery(() => (recepcion ? db.granjas.get(recepcion.GranjaId) : undefined), [recepcion])
   const asociado = useLiveQuery(() => (recepcion ? db.asociados.get(recepcion.AsociadoId) : undefined), [recepcion])
@@ -116,12 +163,20 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     try {
       const remotas = await listarRecepcionesPorRangoFecha(fechaBusqueda, fechaBusqueda)
       let nuevas = 0
+      const idsEncontrados: string[] = []
       for (const rec of remotas) {
-        const yaExiste = await db.recepciones.where('spId').equals(rec.spId as string).first()
-        if (!yaExiste) {
+        const local = await db.recepciones.where('spId').equals(rec.spId as string).first()
+        if (!local) {
           await db.recepciones.put(rec)
           nuevas++
         }
+        idsEncontrados.push(local?.id ?? rec.id)
+      }
+      // Si esa fecha no es la de hoy, el desplegable las seguiría ocultando apenas termine esta
+      // búsqueda — se agregan a idsFueraDeHoy para que se queden visibles (ver el comentario grande
+      // de esa lista más arriba).
+      if (fechaBusqueda !== hoy) {
+        setIdsFueraDeHoy((actuales) => [...new Set([...actuales, ...idsEncontrados])])
       }
       if (remotas.length === 0) {
         setError('No se encontró ninguna Recepción sincronizada con esa fecha.')
@@ -132,6 +187,47 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
       setError(`No se pudo buscar por esa fecha: ${(err as Error).message}`)
     } finally {
       setBuscando(false)
+    }
+  }
+
+  /**
+   * Busca por Consecutivo EXACTO, sin importar la fecha (2026-09-11, a pedido de Nathalia) —
+   * complementa a buscarPorFecha() de arriba para el caso más común: se sabe el Consecutivo del
+   * lote, no la fecha exacta en que se recibió. Encuentra cualquier Recepción sincronizada aunque
+   * nunca se haya traído antes a este dispositivo (mismo criterio que buscarPorFecha, vía Graph
+   * directo) y, si encuentra exactamente una, la selecciona de una vez — si encuentra más de una
+   * (no debería pasar, ver existeConsecutivo() en graph/lists.ts, pero nada lo impide del todo),
+   * las deja todas visibles en el desplegable para que la persona elija cuál es.
+   */
+  async function buscarPorConsecutivo() {
+    const consecutivo = consecutivoBusqueda.trim()
+    if (!consecutivo) return
+    setBuscandoConsecutivo(true)
+    setError(undefined)
+    try {
+      const remotas = await buscarRecepcionesPorConsecutivo(consecutivo)
+      if (remotas.length === 0) {
+        setError(`No se encontró ninguna Recepción sincronizada con el Consecutivo "${consecutivo}".`)
+        return
+      }
+      const idsEncontrados: string[] = []
+      for (const rec of remotas) {
+        const local = await db.recepciones.where('spId').equals(rec.spId as string).first()
+        if (!local) await db.recepciones.put(rec)
+        idsEncontrados.push(local?.id ?? rec.id)
+      }
+      setIdsFueraDeHoy((actuales) => [...new Set([...actuales, ...idsEncontrados])])
+      if (idsEncontrados.length === 1) {
+        setRecepcionId(idsEncontrados[0])
+      } else {
+        setError(
+          `Se encontraron ${idsEncontrados.length} recepciones con ese Consecutivo — elige cuál es en el desplegable de arriba.`,
+        )
+      }
+    } catch (err) {
+      setError(`No se pudo buscar por Consecutivo: ${(err as Error).message}`)
+    } finally {
+      setBuscandoConsecutivo(false)
     }
   }
 
@@ -259,19 +355,44 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
           etiqueta="Recepción"
           value={recepcionId}
           onChange={(e) => setRecepcionId(e.target.value)}
-          opciones={recepciones.map((r) => ({ value: r.id, label: r.Title }))}
-          placeholder="Selecciona una recepción sincronizada…"
+          opciones={recepcionesVisibles.map((r) => ({ value: r.id, label: r.Title }))}
+          placeholder="Selecciona una recepción sincronizada de hoy…"
         />
       </div>
+      <p className="mt-1 max-w-sm text-xs text-slate-400 print:hidden">
+        Por defecto solo se ven los lotes recibidos hoy — usa uno de los buscadores de abajo para
+        encontrar cualquier otro.
+      </p>
 
       {/* flex-col por defecto y solo lado a lado desde sm: el <input type="date"> nativo tiene un
           ancho mínimo propio que en celular (con "Recepción" ya ocupando el máximo de max-w-sm)
           empujaba al botón "Buscar" fuera de la fila y lo montaba encima del campo — apilarlos en
-          pantallas angostas lo evita de raíz, sin depender de que el input logre encogerse. */}
+          pantallas angostas lo evita de raíz, sin depender de que el input logre encogerse. Mismo
+          patrón para el buscador por Consecutivo de abajo. */}
       <div className="mt-3 flex max-w-sm flex-col gap-2 sm:flex-row sm:items-end print:hidden">
         <div className="min-w-0 flex-1">
           <CampoTexto
-            etiqueta="¿No aparece? Buscar por fecha"
+            etiqueta="Buscar por Consecutivo"
+            ayuda="Encuentra cualquier lote sin importar la fecha en que se recibió"
+            value={consecutivoBusqueda}
+            onChange={(e) => setConsecutivoBusqueda(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && void buscarPorConsecutivo()}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => void buscarPorConsecutivo()}
+          disabled={buscandoConsecutivo || !consecutivoBusqueda.trim() || !navigator.onLine}
+          className="rounded-md border border-brand-navy px-3 py-2 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint disabled:opacity-50"
+        >
+          {buscandoConsecutivo ? 'Buscando…' : 'Buscar'}
+        </button>
+      </div>
+
+      <div className="mt-3 flex max-w-sm flex-col gap-2 sm:flex-row sm:items-end print:hidden">
+        <div className="min-w-0 flex-1">
+          <CampoTexto
+            etiqueta="¿No sabes el Consecutivo? Buscar por fecha"
             type="date"
             value={fechaBusqueda}
             onChange={(e) => setFechaBusqueda(e.target.value)}
@@ -287,8 +408,8 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
         </button>
       </div>
       <p className="mt-1 max-w-sm text-xs text-slate-400 print:hidden">
-        Trae a este dispositivo las Recepciones sincronizadas de esa fecha, capturadas desde otro
-        celular o computador — incluidas las que ya quedaron completas.
+        Ambos buscadores traen a este dispositivo las Recepciones sincronizadas que encuentren,
+        capturadas desde otro celular o computador — incluidas las que ya quedaron completas.
       </p>
 
       {!recepcion && recepciones.length === 0 && (
@@ -421,7 +542,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                     <FilaTiquete
                       key={t.id}
                       tiquete={t}
-                      soloLectura={soloLectura}
+                      soloLectura={filaSoloLectura(t)}
                       onGuardar={(cambios) => guardarCambio(t, cambios)}
                     />
                   ))}
