@@ -177,7 +177,9 @@ export type ListName =
   | 'NovedadesCorral'
   | 'ConsolidadoTiquetes'
   | 'RecepcionLog'
-  | 'LlegadasPendientes'
+  // NOTA HISTÓRICA (2026-09-11, octava ronda): 'LlegadasPendientes' vivió aquí (agregada segunda
+  // ronda del mismo día) — retirada por completo a pedido de Nathalia, ver el comentario grande de
+  // `LlegadaPendiente` en src/types/models.ts. La lista en SharePoint no se tocó, queda sin uso.
 
 export async function getListId(name: ListName): Promise<string> {
   const cache = readCache()
