@@ -32,15 +32,19 @@ type PropsCampoTexto = InputHTMLAttributes<HTMLInputElement> & {
   etiqueta: string
   requerido?: boolean
   error?: string
+  /** Texto corto opcional debajo de la etiqueta, para aclarar cuándo un campo se puede dejar vacío
+   * o cómo se espera que se use — ej. HoraInicioDesembarque/HoraFinalDesembarque en Recepcion.tsx. */
+  ayuda?: string
 }
 
 export const CampoTexto = forwardRef<HTMLInputElement, PropsCampoTexto>(function CampoTexto(
-  { etiqueta, requerido, error, className, ...resto },
+  { etiqueta, requerido, error, ayuda, className, ...resto },
   ref,
 ) {
   return (
     <div>
       <Etiqueta requerido={requerido}>{etiqueta}</Etiqueta>
+      {ayuda && <p className="mb-1 text-xs text-slate-400">{ayuda}</p>}
       <input ref={ref} className={clsx(claseInput, className)} {...resto} />
       <MensajeError mensaje={error} />
     </div>
