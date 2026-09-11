@@ -146,6 +146,16 @@ export interface Recepcion extends CapturaOffline {
    * aparece en el reporte diario por lote.
    */
   CapturadoPor: string
+  /**
+   * Agregado 2026-09-11, a pedido de Nathalia: ¿el lote se benefició (procesó) el MISMO día en que
+   * se recibió? No tiene nada que ver con `EstadoLote` (que es sobre si Consolidado ya terminó de
+   * asignarle Tiquete/Destino a cada animal) — un lote puede estar "Completo" en Consolidado varios
+   * días después de recibido, y este campo aparte es solo para la pestaña "Cierre diario" de
+   * Reporte.tsx: al final del día, marcan ahí cuáles de los lotes recibidos ESE día ya se
+   * beneficiaron, replicando en la app la práctica que ya tenían en Excel de pintar de azul la
+   * celda de cantidad de los que sí. Por defecto en `false` — se marca a mano, nunca solo.
+   */
+  BeneficiadoMismoDia: boolean
 }
 
 export interface Ubicacion extends CapturaOffline {
