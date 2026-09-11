@@ -177,6 +177,7 @@ export type ListName =
   | 'NovedadesCorral'
   | 'ConsolidadoTiquetes'
   | 'RecepcionLog'
+  | 'LlegadasPendientes'
 
 export async function getListId(name: ListName): Promise<string> {
   const cache = readCache()
