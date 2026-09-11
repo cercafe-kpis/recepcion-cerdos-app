@@ -2,12 +2,18 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { db } from '../../offline/db'
-import { listarRecepcionesPorRangoFecha, listarTiquetesDeRecepcion, obtenerNovedadCorralDeRecepcion } from '../../graph/lists'
+import {
+  crearLlegadaPendiente,
+  listarLlegadasPendientesPorFecha,
+  listarRecepcionesPorRangoFecha,
+  listarTiquetesDeRecepcion,
+  obtenerNovedadCorralDeRecepcion,
+} from '../../graph/lists'
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { ReporteDiarioLote } from './ReporteDiarioLote'
 import { ReporteSemanalAsociado } from './ReporteSemanalAsociado'
 import { ReporteCierreDiario } from './ReporteCierreDiario'
-import type { ConsolidadoTiquete, NovedadCorral, Recepcion } from '../../types/models'
+import type { ConsolidadoTiquete, LlegadaPendiente, NovedadCorral, Recepcion, Usuario } from '../../types/models'
 
 function hoyISO() {
   return new Date().toISOString().slice(0, 10)
@@ -17,6 +23,14 @@ function haceDiasISO(dias: number) {
   const d = new Date()
   d.setDate(d.getDate() - dias)
   return d.toISOString().slice(0, 10)
+}
+
+/** Mismo criterio que combinarFechaHora() en src/features/recepcion/Recepcion.tsx (offset fijo
+ * -05:00, Colombia no tiene horario de verano) — duplicada a propósito, cada pantalla es
+ * independiente por diseño en esta app. La usa solo registrarLlegada() en ReporteCierre, más abajo,
+ * para armar HoraLlegadaVehiculo de una LlegadaPendiente. */
+function combinarFechaHora(fecha: string, hora: string): string {
+  return `${fecha}T${hora}:00-05:00`
 }
 
 /**
@@ -40,7 +54,9 @@ function haceDiasISO(dias: number) {
  *    día con TODAS las recepciones del día (mismo cuadro que ya usaban en Excel), donde se toca la
  *    celda de "N.° animales" para marcar/desmarcar cuáles ya se beneficiaron el mismo día —
  *    reemplaza la práctica manual de pintar esa celda de azul. Ver el comentario de
- *    `BeneficiadoMismoDia` en models.ts y el de ReporteCierreDiario.tsx.
+ *    `BeneficiadoMismoDia` en models.ts y el de ReporteCierreDiario.tsx. También agrega los
+ *    camiones que llegaron y quedaron esperando sin desembarcar ese día (ver el comentario grande
+ *    de `LlegadaPendiente` en models.ts) como filas aparte que se resuelven solas por Consecutivo.
  *
  * Ninguna de las tres pestañas descarga nada en segundo plano ni lo guarda
  * en Dexie: las tres consultan SharePoint directo, solo al tocar "Generar",
@@ -48,7 +64,7 @@ function haceDiasISO(dias: number) {
  * acumulando cada vez más historial (igual que descargarRecepcionesEnProceso
  * en syncService.ts, que sigue trayendo solo las recepciones "En proceso").
  */
-export function Reporte() {
+export function Reporte({ usuario }: { usuario: Usuario }) {
   const [tab, setTab] = useState<'diario' | 'semanal' | 'cierre'>('diario')
 
   const asociados = useLiveQuery(() => db.asociados.toArray(), []) ?? []
@@ -111,7 +127,14 @@ export function Reporte() {
           gruposAsociados={gruposAsociados}
         />
       ) : (
-        <ReporteCierre mapaAsociados={mapaAsociados} mapaGranjas={mapaGranjas} />
+        <ReporteCierre
+          usuario={usuario}
+          mapaAsociados={mapaAsociados}
+          mapaGranjas={mapaGranjas}
+          asociados={asociados}
+          granjas={granjas}
+          vehiculos={vehiculos}
+        />
       )}
     </div>
   )
@@ -344,28 +367,46 @@ function ReporteSemanal({
  * Se ordena por HoraLlegadaVehiculo (no por Consecutivo, como "Diario") para que el orden de las
  * filas coincida con el orden cronológico de llegada del cuadro de referencia que ya usaban en
  * Excel.
+ *
+ * Además de las Recepciones del día, trae las LlegadasPendientes de ese mismo día (camiones que
+ * llegaron y quedaron esperando sin desembarcar) y descarta aquí las que YA se resolvieron —
+ * cualquiera cuyo Consecutivo ya aparezca entre las Recepciones del día — antes de pasarlas a
+ * ReporteCierreDiario. Ver el comentario grande de LlegadaPendiente en models.ts.
  */
 function ReporteCierre({
+  usuario,
   mapaAsociados,
   mapaGranjas,
+  asociados,
+  granjas,
+  vehiculos,
 }: {
+  usuario: Usuario
   mapaAsociados: Map<string, { Title: string }>
   mapaGranjas: Map<string, { Title: string }>
+  asociados: Array<{ id: string; Title: string }>
+  granjas: Array<{ id: string; Title: string; AsociadoId: string }>
+  vehiculos: Array<{ id: string; Title: string }>
 }) {
   const [fecha, setFecha] = useState(hoyISO())
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState<string>()
   const [generado, setGenerado] = useState(false)
   const [recepciones, setRecepciones] = useState<Recepcion[]>([])
+  const [llegadasPendientes, setLlegadasPendientes] = useState<LlegadaPendiente[]>([])
 
   async function generar() {
     setCargando(true)
     setError(undefined)
     setGenerado(false)
     try {
-      const traidas = await listarRecepcionesPorRangoFecha(fecha, fecha)
+      const [traidas, llegadas] = await Promise.all([
+        listarRecepcionesPorRangoFecha(fecha, fecha),
+        listarLlegadasPendientesPorFecha(fecha),
+      ])
       traidas.sort((a, b) => a.HoraLlegadaVehiculo.localeCompare(b.HoraLlegadaVehiculo))
       setRecepciones(traidas)
+      setLlegadasPendientes(llegadas)
       setGenerado(true)
     } catch (err) {
       setError(`No se pudo generar el reporte: ${(err as Error).message}`)
@@ -376,6 +417,38 @@ function ReporteCierre({
 
   function onCambio(recepcionId: string, cambios: Partial<Recepcion>) {
     setRecepciones((actuales) => actuales.map((r) => (r.id === recepcionId ? { ...r, ...cambios } : r)))
+  }
+
+  // Se resuelve SOLA (nunca a mano, ver LlegadaPendiente en models.ts): cualquier llegada cuyo
+  // Consecutivo ya tenga una Recepción completa ese mismo día deja de mostrarse.
+  const llegadasSinResolver = useMemo(
+    () => llegadasPendientes.filter((lp) => !recepciones.some((r) => r.Consecutivo === lp.Consecutivo)),
+    [llegadasPendientes, recepciones],
+  )
+
+  async function registrarLlegada(datos: {
+    Hora: string
+    AsociadoId: string
+    GranjaId: string
+    Consecutivo: string
+    NumeroOrden?: string
+    PlacaVehiculoId?: string
+  }) {
+    await crearLlegadaPendiente({
+      FechaLlegada: fecha,
+      HoraLlegadaVehiculo: combinarFechaHora(fecha, datos.Hora),
+      AsociadoId: datos.AsociadoId,
+      GranjaId: datos.GranjaId,
+      Consecutivo: datos.Consecutivo,
+      NumeroOrden: datos.NumeroOrden,
+      PlacaVehiculoId: datos.PlacaVehiculoId,
+      CapturadoPor: usuario.Title,
+    })
+    // Se vuelve a traer de Graph en vez de armar el objeto localmente — crearLlegadaPendiente() no
+    // devuelve el id que le asignó SharePoint, y esta pestaña ya trabaja solo en línea (ver el
+    // comentario grande de ReporteCierreDiario.tsx), así que un viaje más a Graph no cambia nada.
+    const llegadas = await listarLlegadasPendientesPorFecha(fecha)
+    setLlegadasPendientes(llegadas)
   }
 
   return (
@@ -400,9 +473,14 @@ function ReporteCierre({
         error={error}
         generado={generado}
         recepciones={recepciones}
+        llegadasPendientes={llegadasSinResolver}
         asociadoNombre={(r) => mapaAsociados.get(r.AsociadoId)?.Title ?? '—'}
         granjaNombre={(r) => mapaGranjas.get(r.GranjaId)?.Title ?? '—'}
         onCambio={onCambio}
+        asociados={asociados}
+        granjas={granjas}
+        vehiculos={vehiculos}
+        onRegistrarLlegada={registrarLlegada}
       />
     </div>
   )
