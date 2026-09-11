@@ -420,6 +420,7 @@ function mapFieldsARecepcion(item: { id: string; fields: Record<string, unknown>
     Observaciones: f.Observaciones ? String(f.Observaciones) : undefined,
     EstadoLote: (f.EstadoLote as Recepcion['EstadoLote']) ?? 'En proceso',
     CapturadoPor: String(f.CapturadoPor ?? ''),
+    BeneficiadoMismoDia: Boolean(f.BeneficiadoMismoDia),
     EstadoSync: 'Sincronizada',
     CapturadaEn: f.CapturadaEn ? String(f.CapturadaEn) : '',
     RecibidaEn: f.RecibidaEn ? String(f.RecibidaEn) : undefined,
@@ -537,6 +538,16 @@ export async function marcarLoteCompleto(recepcionSpId: string): Promise<void> {
  */
 export async function reabrirLote(recepcionSpId: string): Promise<void> {
   await updateItem('Recepciones', recepcionSpId, { EstadoLote: 'En proceso' })
+}
+
+/**
+ * Marca (o desmarca) si una Recepción se benefició el mismo día en que se recibió — ver el
+ * comentario de `BeneficiadoMismoDia` en models.ts. Usada solo desde la pestaña "Cierre diario" de
+ * Reporte.tsx, que llama a esta función DIRECTO contra Graph (esa pestaña ya trabaja solo en línea,
+ * igual que "Diario" y "Semanal" — no pasa por Dexie ni por la cola de sincronización).
+ */
+export async function marcarBeneficiadoMismoDia(recepcionSpId: string, valor: boolean): Promise<void> {
+  await updateItem('Recepciones', recepcionSpId, { BeneficiadoMismoDia: valor })
 }
 
 /**
