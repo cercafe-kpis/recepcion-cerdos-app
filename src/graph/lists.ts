@@ -4,6 +4,7 @@ import type {
   ConsolidadoTiquete,
   Granja,
   GrupoAsociado,
+  LlegadaPendiente,
   NovedadCorral,
   Recepcion,
   RecepcionLogEntry,
@@ -548,6 +549,92 @@ export async function reabrirLote(recepcionSpId: string): Promise<void> {
  */
 export async function marcarBeneficiadoMismoDia(recepcionSpId: string, valor: boolean): Promise<void> {
   await updateItem('Recepciones', recepcionSpId, { BeneficiadoMismoDia: valor })
+}
+
+// ---------------------------------------------------------------------------
+// LlegadasPendientes — ver el comentario grande de LlegadaPendiente en models.ts (agregada
+// 2026-09-11, segunda ronda): registro APARTE y mínimo para el camión que llega y queda esperando
+// sin desembarcar el mismo día, con solo lo que ya se sabe en ese momento. Recepcion.tsx no cambió
+// en nada — sigue exigiendo las 4 horas y llenándose una sola vez, completa, cuando el desembarque
+// ya terminó.
+// ---------------------------------------------------------------------------
+
+function mapFieldsALlegadaPendiente(item: { id: string; fields: Record<string, unknown> }): LlegadaPendiente {
+  const f = item.fields
+  return {
+    id: item.id,
+    Title: String(f.Title ?? ''),
+    FechaLlegada: String(f.FechaLlegada ?? ''),
+    HoraLlegadaVehiculo: String(f.HoraLlegadaVehiculo ?? ''),
+    AsociadoId: String(f.AsociadoIdLookupId ?? ''),
+    GranjaId: String(f.GranjaIdLookupId ?? ''),
+    Consecutivo: String(f.Consecutivo ?? ''),
+    NumeroOrden: f.NumeroOrden ? String(f.NumeroOrden) : undefined,
+    PlacaVehiculoId: f.PlacaVehiculoIdLookupId ? String(f.PlacaVehiculoIdLookupId) : undefined,
+    CapturadoPor: String(f.CapturadoPor ?? ''),
+    CreadoEn: String(f.CreadoEn ?? ''),
+  }
+}
+
+/**
+ * Trae las LlegadasPendientes cuya FechaLlegada cae en la fecha dada ('YYYY-MM-DD') — la usa
+ * SOLO "Cierre diario" en Reporte.tsx, junto con listarRecepcionesPorRangoFecha(), para armar la
+ * tabla del día: cualquiera de estos registros cuyo Consecutivo YA aparezca entre las Recepciones
+ * de esa misma fecha se descarta ahí (no aquí) — significa que esa llegada ya se resolvió con una
+ * Recepción completa. Ver el comentario de LlegadaPendiente en models.ts.
+ */
+export async function listarLlegadasPendientesPorFecha(fecha: string): Promise<LlegadaPendiente[]> {
+  const desdeISO = `${fecha}T00:00:00Z`
+  const hastaFecha = new Date(`${fecha}T00:00:00Z`)
+  hastaFecha.setUTCDate(hastaFecha.getUTCDate() + 1)
+  const hastaISO = hastaFecha.toISOString()
+  const items = await listItems<Record<string, unknown>>(
+    'LlegadasPendientes',
+    `$expand=fields&$filter=fields/FechaLlegada ge '${desdeISO}' and fields/FechaLlegada lt '${hastaISO}'&$top=200`,
+  )
+  return items.map(mapFieldsALlegadaPendiente)
+}
+
+/**
+ * Registra que un camión llegó y quedó esperando sin desembarcar — botón "+ Registrar llegada en
+ * espera" en la pestaña "Cierre diario" de Reporte.tsx. Escribe DIRECTO contra Graph (esa pestaña ya
+ * trabaja solo en línea, sin Dexie ni cola de sincronización — igual que marcarBeneficiadoMismoDia()
+ * arriba), así que esta acción necesita conexión en el momento de usarla.
+ */
+export async function crearLlegadaPendiente(
+  datos: Omit<LlegadaPendiente, 'id' | 'Title' | 'CreadoEn'>,
+): Promise<void> {
+  const { AsociadoId, GranjaId, PlacaVehiculoId, ...resto } = datos
+  await createItem('LlegadasPendientes', {
+    ...resto,
+    Title: `${datos.Consecutivo} · ${datos.FechaLlegada}`,
+    AsociadoIdLookupId: Number(AsociadoId),
+    GranjaIdLookupId: Number(GranjaId),
+    ...(PlacaVehiculoId ? { PlacaVehiculoIdLookupId: Number(PlacaVehiculoId) } : {}),
+    CreadoEn: new Date().toISOString(),
+  })
+}
+
+/**
+ * Busca una LlegadaPendiente por su Consecutivo, sin importar la fecha — a diferencia de
+ * listarLlegadasPendientesPorFecha() (que solo trae las de UN día, para "Cierre diario"), esta se usa
+ * desde Recepcion.tsx (botón "Cargar datos de llegada en espera") para poder traer los datos de
+ * encabezado (Asociado/Granja/Consecutivo/Orden/Placa/Hora de llegada) que ya se registraron cuando
+ * el camión llegó, sin tener que volver a digitarlos al llenar la Recepción completa — pedido de
+ * Nathalia (2026-09-11, tercera ronda) para no repetir el ingreso de datos entre el registro rápido
+ * de llegada y la Recepción. Si hubiera más de un registro con el mismo Consecutivo (no debería
+ * pasar, pero nada lo impide — ver "Pendiente" en el documento de arquitectura), devuelve el más
+ * reciente por `CreadoEn`.
+ */
+export async function buscarLlegadaPendientePorConsecutivo(consecutivo: string): Promise<LlegadaPendiente | undefined> {
+  const items = await listItems<Record<string, unknown>>(
+    'LlegadasPendientes',
+    `$expand=fields&$filter=fields/Consecutivo eq '${consecutivo.replace(/'/g, "''")}'&$top=50`,
+  )
+  if (items.length === 0) return undefined
+  const llegadas = items.map(mapFieldsALlegadaPendiente)
+  llegadas.sort((a, b) => b.CreadoEn.localeCompare(a.CreadoEn))
+  return llegadas[0]
 }
 
 /**
