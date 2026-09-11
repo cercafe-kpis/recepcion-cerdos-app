@@ -98,11 +98,20 @@ export interface Recepcion extends CapturaOffline {
    * Ver combinarFechaHora() en src/features/recepcion/Recepcion.tsx. HoraProgramada se agregó para
    * el reporte diario por lote (src/features/reportes/ReporteDiarioLote.tsx) — Tiempo de espera y
    * Tiempo de desembarque de ese reporte se calculan solos a partir de estas 4, no se capturan aparte.
+   *
+   * HoraInicioDesembarque/HoraFinalDesembarque son OPCIONALES (revertido a esto 2026-09-11, octava
+   * ronda, a pedido explícito de Nathalia: "el proceso no es así" — un lote puede llegar después de
+   * la jornada y esas 2 horas simplemente nunca se van a conocer, no es que se completen después.
+   * Antes de esto se había intentado un registro aparte para "camión que llega y queda esperando"
+   * (ver la sesión del 2026-09-11, rondas 2 a 4, y `LlegadaPendiente`, ya retirado de este archivo)
+   * — Nathalia pidió deshacer todo eso y dejar simplemente estas 2 horas en blanco cuando no se
+   * sepan. `horaCorta()`/`minutosEntre()` en los reportes (ReporteDiarioLote.tsx,
+   * ReporteCierreDiario.tsx) ya manejaban `undefined` mostrando "—", así que no necesitaron cambios.
    */
   HoraProgramada: string
   HoraLlegadaVehiculo: string
-  HoraInicioDesembarque: string
-  HoraFinalDesembarque: string
+  HoraInicioDesembarque?: string
+  HoraFinalDesembarque?: string
   AsociadoId: string
   GranjaId: string
   NumeroTotalCerdos: number
@@ -158,49 +167,13 @@ export interface Recepcion extends CapturaOffline {
   BeneficiadoMismoDia: boolean
 }
 
-/**
- * Agregada 2026-09-11 (segunda ronda), a pedido de Nathalia: registro APARTE y mínimo para el
- * camión que llega y queda esperando en el patio sin desembarcar el mismo día — Recepcion.tsx sigue
- * exigiendo las 4 horas y se sigue llenando UNA sola vez, completa, cuando el desembarque ya
- * terminó (exactamente como siempre, sin ningún hueco: cantidad de animales, peso, novedades, etc.
- * solo se conocen en ese momento). Este registro solo guarda lo que YA se sabe apenas llega el
- * camión — confirmado con Nathalia: Hora de llegada, Asociado, Granja y Consecutivo; Número de
- * orden, Placa, Guía sanitaria ICA y Número total de cerdos quedan opcionales por si también se
- * saben ya (estas dos últimas agregadas 2026-09-11, cuarta ronda, también a pedido de Nathalia).
- *
- * Vive en la lista de SharePoint `LlegadasPendientes`, separada de `Recepciones` — no es un Lookup
- * hacia Recepcion ni al revés. Se resuelve SOLO (nunca a mano): en `ReporteCierre` de Reporte.tsx,
- * cualquier LlegadaPendiente cuyo Consecutivo ya aparezca entre las Recepciones de esa fecha se
- * deja de mostrar — significa que esa Recepción ya se completó. Por eso Consecutivo es el campo
- * clave de este registro, igual que lo es en Recepcion.
- *
- * A diferencia de Recepcion/Ubicacion/NovedadCorral, este registro NO tiene captura sin conexión:
- * se crea DIRECTO contra Graph, que ya trabaja solo en línea por diseño — mismo criterio que
- * marcarBeneficiadoMismoDia() en src/graph/lists.ts. Por eso no extiende CapturaOffline: no hace
- * falta EstadoSync ni distinguir CapturadaEn/RecibidaEn, con un solo `CreadoEn` alcanza (mismo
- * patrón simple que RecepcionLogEntry, más abajo).
- *
- * El botón que crea este registro vivió primero en la pestaña "Cierre diario" de Reporte.tsx; a
- * pedido de Nathalia (2026-09-11, cuarta ronda) se movió a una segunda pestaña ("Llegada en
- * espera") dentro de la pantalla de Recepción (ver LlegadaEnEspera en Recepcion.tsx) — "Cierre
- * diario" sigue MOSTRANDO y resolviendo solas las llegadas pendientes del día, pero ya no las crea.
- */
-export interface LlegadaPendiente {
-  id: string
-  Title: string
-  FechaLlegada: string
-  HoraLlegadaVehiculo: string
-  AsociadoId: string
-  GranjaId: string
-  Consecutivo: string
-  NumeroOrden?: string
-  PlacaVehiculoId?: string
-  /** Mismo formato forzado que Recepcion.GuiaSanitariaICA (3 cifras + guion + el resto). */
-  GuiaSanitariaICA?: string
-  NumeroTotalCerdos?: number
-  CapturadoPor: string
-  CreadoEn: string
-}
+// NOTA HISTÓRICA (2026-09-11, octava ronda): aquí vivió `LlegadaPendiente` — un registro aparte
+// para "camión que llega y queda esperando sin desembarcar", con su propia pestaña "Llegada en
+// espera" en Recepcion.tsx y su propia lista `LlegadasPendientes` en SharePoint (rondas 2 a 4 de la
+// sesión del 2026-09-11). Nathalia pidió deshacerlo por completo: "el proceso no es así" — el
+// reemplazo es simplemente dejar HoraInicioDesembarque/HoraFinalDesembarque opcionales en
+// `Recepcion` (ver el comentario ahí), sin ningún registro aparte. La lista `LlegadasPendientes` en
+// SharePoint no se tocó (queda vacía y sin uso, salvo que alguien decida borrarla a mano).
 
 export interface Ubicacion extends CapturaOffline {
   id: string
