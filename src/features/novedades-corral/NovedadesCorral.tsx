@@ -4,7 +4,11 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../../offline/db'
 import { sincronizar } from '../../offline/syncService'
-import { buscarRecepcionesPorConsecutivo, listarRecepcionesPorRangoFecha } from '../../graph/lists'
+import {
+  buscarRecepcionesPorConsecutivo,
+  existeNovedadCorralDeRecepcion,
+  listarRecepcionesPorRangoFecha,
+} from '../../graph/lists'
 import { CampoCheckbox, CampoSelect, CampoTexto, SeccionFormulario } from '../../components/CamposFormulario'
 import { novedadCorralSchema, type NovedadCorralFormInput, type NovedadCorralFormValues } from './novedadCorralSchema'
 import type { NovedadCorral, Usuario } from '../../types/models'
@@ -139,6 +143,36 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
     setGuardando(true)
     setMensaje(undefined)
     try {
+      // A pedido de Nathalia (2026-09-21, tras un caso real: dos envíos con "Caídos: 5" para el
+      // mismo lote hicieron que el reporte diario mostrara 10 — ver el comentario grande de
+      // existeNovedadCorralDeRecepcion() en graph/lists.ts). Nada impide capturar Novedades en
+      // Corral más de una vez para la misma Recepción, y el reporte SUMA las cantidades de todos
+      // los envíos a propósito (para el caso legítimo de capturar novedades distintas en envíos
+      // separados, ej. "Muerto en reposo" hoy y "Caído" más tarde) — así que este aviso no
+      // bloquea nada, solo evita el reenvío accidental de la MISMA información: la persona decide
+      // si continúa (novedad distinta) o cancela (fue un error). Solo se puede avisar si la
+      // Recepción ya tiene `spId` (sincronizada) y hay conexión para consultar Graph — si no, se
+      // guarda sin aviso, igual que siempre, para no bloquear nunca la captura offline.
+      const recepcion = await db.recepciones.get(valores.RecepcionId)
+      if (recepcion?.spId && navigator.onLine) {
+        try {
+          const yaExiste = await existeNovedadCorralDeRecepcion(recepcion.spId)
+          if (yaExiste) {
+            const continuar = window.confirm(
+              `Ya hay una Novedad en Corral guardada para el lote "${recepcion.Title}".\n\n` +
+                'Si es una novedad DISTINTA a la que ya registraste (por ejemplo, ya guardaste "Muerto en reposo" y ahora quieres agregar "Caído"), puedes continuar.\n\n' +
+                'Si es la MISMA información que ya guardaste, cancela para no duplicarla — el reporte diario suma las cantidades de todos los envíos de un mismo lote.\n\n' +
+                '¿Continuar y guardar esta Novedad en Corral también?',
+            )
+            if (!continuar) return
+          }
+        } catch {
+          // Si falla la consulta (por ejemplo, se pierde la conexión justo en este momento), se
+          // sigue guardando sin aviso — nunca bloquear la captura por un chequeo que no se pudo
+          // completar.
+        }
+      }
+
       const registro: NovedadCorral = {
         ...valores,
         id: crypto.randomUUID(),
