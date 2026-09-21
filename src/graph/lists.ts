@@ -602,12 +602,14 @@ export async function crearNovedadCorralEnSharePoint(
 }
 
 /**
- * Estas dos se usan SOLO desde cerrarLotesCompletos() en syncService.ts, para
- * decidir si una Recepción ya se puede marcar "Completo". Consultan Graph
- * directamente (nunca Dexie): Ubicación y Novedades en Corral se capturan
- * offline y pueden vivir todavía sin sincronizar en OTRO dispositivo distinto
- * al que está corriendo este chequeo, así que el único lugar donde de verdad
- * ya existen ambas es SharePoint.
+ * Ambas consultan Graph directamente (nunca Dexie): Ubicación y Novedades en Corral se capturan
+ * offline y pueden vivir todavía sin sincronizar en OTRO dispositivo distinto al que está corriendo
+ * el chequeo, así que el único lugar donde de verdad ya existen ambas es SharePoint. Se agregaron
+ * originalmente para cerrarLotesCompletos() en syncService.ts (retirada el 2026-09-09, ver "Segunda
+ * sesión del 2026-09-09" en el documento de arquitectura) y quedaron sin usar desde entonces —
+ * `existeNovedadCorralDeRecepcion()` volvió a tener un uso real el 2026-09-21, como aviso de
+ * posible duplicado en `NovedadesCorral.tsx` (ver el comentario ahí). `existeUbicacionDeRecepcion()`
+ * sigue sin usarse — sería el mismo aviso, pero para Ubicación, si alguna vez se pide.
  */
 export async function existeUbicacionDeRecepcion(recepcionSpId: string): Promise<boolean> {
   const items = await listItems<Record<string, unknown>>(
@@ -617,6 +619,12 @@ export async function existeUbicacionDeRecepcion(recepcionSpId: string): Promise
   return items.length > 0
 }
 
+/**
+ * Usada en 2 lugares con propósitos distintos: `obtenerNovedadCorralDeRecepcion()` (más abajo, para
+ * traer y combinar el registro completo) y, desde el 2026-09-21, como el chequeo de "¿ya existe una
+ * Novedad en Corral para este lote?" que muestra el aviso de posible duplicado en
+ * `NovedadesCorral.tsx` antes de guardar — ahí solo hace falta saber si existe, no traer nada.
+ */
 export async function existeNovedadCorralDeRecepcion(recepcionSpId: string): Promise<boolean> {
   const items = await listItems<Record<string, unknown>>(
     'NovedadesCorral',
