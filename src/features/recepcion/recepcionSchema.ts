@@ -24,7 +24,10 @@ export const recepcionSchema = z
     AsociadoId: z.string().min(1, 'Selecciona un asociado'),
     GranjaId: z.string().min(1, 'Selecciona una granja'),
     NumeroTotalCerdos: z.coerce.number().int('Debe ser un número entero').positive('Debe ser mayor a 0'),
-    PesoPromedioGranja: z.coerce.number().positive('Debe ser mayor a 0'),
+    // nonnegative (no positive) a pedido de Nathalia (2026-09-25): algunas granjas no pesan los
+    // cerdos al despacho, así que a veces el valor real que hay que capturar es 0 — sigue siendo
+    // obligatorio (un valor vacío o negativo no pasa), solo deja de exigir que sea mayor a cero.
+    PesoPromedioGranja: z.coerce.number().nonnegative('Debe ser un número mayor o igual a 0'),
     PlacaVehiculoId: z.string().min(1, 'Selecciona un vehículo'),
     // Formato forzado por el input enmascarado en Recepcion.tsx (formatearGuiaICA): siempre 3
     // cifras, un guion, y el resto de los números — ej. "026-445555552".
