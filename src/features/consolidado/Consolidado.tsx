@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { db } from '../../offline/db'
 import { cachearTiquetesDeRecepcion, guardarEdicionTiqueteLocal, sincronizar } from '../../offline/syncService'
 import {
+  actualizarConsecutivoYOrden,
   buscarRecepcionesPorConsecutivo,
   generarTiquetesFaltantes,
   generarTiquetesNovedadCorral,
@@ -43,6 +44,14 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [verReporteInmediato, setVerReporteInmediato] = useState(false)
   const [novedadCorral, setNovedadCorral] = useState<NovedadCorral>()
   const esAdmin = usuario.Rol === 'Administrador'
+
+  // Edición de Consecutivo/Número de orden (2026-09-26, a pedido de Nathalia) — ver el botón
+  // "Editar" más abajo y actualizarConsecutivoYOrden() en graph/lists.ts. Solo estos 2 campos: el
+  // resto de la Recepción sigue sin poder tocarse una vez capturada.
+  const [editandoConsecutivo, setEditandoConsecutivo] = useState(false)
+  const [nuevoConsecutivo, setNuevoConsecutivo] = useState('')
+  const [nuevoNumeroOrden, setNuevoNumeroOrden] = useState('')
+  const [guardandoConsecutivo, setGuardandoConsecutivo] = useState(false)
 
   const recepciones =
     useLiveQuery(
@@ -334,6 +343,52 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     }
   }
 
+  function empezarEdicionConsecutivo() {
+    if (!recepcion) return
+    setNuevoConsecutivo(recepcion.Consecutivo)
+    setNuevoNumeroOrden(recepcion.NumeroOrden)
+    setError(undefined)
+    setEditandoConsecutivo(true)
+  }
+
+  /**
+   * Solo revisa contra otras Recepciones si el Consecutivo de verdad cambió — si no, buscar por el
+   * mismo valor encontraría esta misma Recepción y bloquearía guardar sin haber cambiado nada. Igual
+   * que existeConsecutivo()/buscarRecepcionesPorConsecutivo() en graph/lists.ts, es una revisión de
+   * "mejor esfuerzo" (2 personas corrigiendo el mismo Consecutivo al mismo tiempo en dispositivos
+   * distintos podrían igual chocar) — suficiente para el caso real que la motivó: una persona
+   * corrigiendo un typo que se le pasó.
+   */
+  async function guardarConsecutivo() {
+    if (!recepcion?.spId) return
+    const consecutivo = nuevoConsecutivo.trim()
+    const numeroOrden = nuevoNumeroOrden.trim()
+    if (!consecutivo || !numeroOrden) {
+      setError('Consecutivo y Número de orden son obligatorios.')
+      return
+    }
+    setGuardandoConsecutivo(true)
+    setError(undefined)
+    try {
+      if (consecutivo !== recepcion.Consecutivo) {
+        const otras = (await buscarRecepcionesPorConsecutivo(consecutivo)).filter((r) => r.spId !== recepcion.spId)
+        if (otras.length > 0) {
+          setError(
+            `Ya existe otra Recepción con el Consecutivo "${consecutivo}" (${otras[0].FechaRecepcion}) — revisa cuál es el correcto antes de guardar.`,
+          )
+          return
+        }
+      }
+      await actualizarConsecutivoYOrden(recepcion.spId, { Consecutivo: consecutivo, NumeroOrden: numeroOrden })
+      await db.recepciones.update(recepcion.id, { Consecutivo: consecutivo, NumeroOrden: numeroOrden })
+      setEditandoConsecutivo(false)
+    } catch (err) {
+      setError(`No se pudo guardar el cambio: ${(err as Error).message}`)
+    } finally {
+      setGuardandoConsecutivo(false)
+    }
+  }
+
   async function guardarCambio(t: ConsolidadoTiquete, cambios: Partial<ConsolidadoTiquete>) {
     await guardarEdicionTiqueteLocal(t.id, cambios)
     if (navigator.onLine) {
@@ -421,11 +476,73 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
 
       {recepcion && (
         <>
-          <div className="mt-5 grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-4 print:hidden">
-            <Dato etiqueta="Fecha" valor={recepcion.FechaRecepcion} />
-            <Dato etiqueta="Granja" valor={granja?.Title ?? '—'} />
-            <Dato etiqueta="Consecutivo" valor={recepcion.Consecutivo} />
-            <Dato etiqueta="Número de orden" valor={recepcion.NumeroOrden} />
+          <div className="mt-5 rounded-lg border border-slate-200 bg-white p-4 print:hidden">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Dato etiqueta="Fecha" valor={recepcion.FechaRecepcion} />
+              <Dato etiqueta="Granja" valor={granja?.Title ?? '—'} />
+              {editandoConsecutivo ? (
+                <>
+                  <CampoTexto
+                    etiqueta="Consecutivo"
+                    requerido
+                    value={nuevoConsecutivo}
+                    onChange={(e) => setNuevoConsecutivo(e.target.value)}
+                  />
+                  <CampoTexto
+                    etiqueta="Número de orden"
+                    requerido
+                    value={nuevoNumeroOrden}
+                    onChange={(e) => setNuevoNumeroOrden(e.target.value)}
+                  />
+                </>
+              ) : (
+                <>
+                  <Dato etiqueta="Consecutivo" valor={recepcion.Consecutivo} />
+                  <Dato etiqueta="Número de orden" valor={recepcion.NumeroOrden} />
+                </>
+              )}
+            </div>
+            {/* Editar Consecutivo/Número de orden — solo Administrador y solo en línea (hace falta
+                Graph para revisar que el Consecutivo nuevo no esté repetido y para guardar el
+                cambio, ver guardarConsecutivo() arriba). El resto de la Recepción sigue sin poder
+                editarse desde aquí. */}
+            {esAdmin && (
+              <div className="mt-3 flex items-center gap-3">
+                {editandoConsecutivo ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void guardarConsecutivo()}
+                      disabled={guardandoConsecutivo || !navigator.onLine}
+                      className="rounded-md bg-brand-navy px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-navy-hover disabled:opacity-50"
+                    >
+                      {guardandoConsecutivo ? 'Guardando…' : 'Guardar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditandoConsecutivo(false)
+                        setError(undefined)
+                      }}
+                      disabled={guardandoConsecutivo}
+                      className="text-xs font-medium text-slate-500 hover:text-brand-red disabled:opacity-50"
+                    >
+                      Cancelar
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={empezarEdicionConsecutivo}
+                    disabled={!navigator.onLine}
+                    title="Corregir Consecutivo o Número de orden por un error de captura"
+                    className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
+                  >
+                    Editar Consecutivo / Número de orden
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {loteCompleto && (
