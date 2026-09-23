@@ -572,6 +572,26 @@ export async function marcarBeneficiadoMismoDia(recepcionSpId: string, valor: bo
   await updateItem('Recepciones', recepcionSpId, { BeneficiadoMismoDia: valor })
 }
 
+/**
+ * Corrige Consecutivo y/o Número de orden de una Recepción YA sincronizada — a pedido de Nathalia
+ * (2026-09-26), para cuando alguien se equivoca al digitarlos y el error solo se nota después (ej.
+ * al buscar el lote y no encontrarlo, o al notar un Consecutivo repetido). Es la ÚNICA edición que
+ * se permite sobre una Recepción ya creada aparte de EstadoLote/BeneficiadoMismoDia de arriba — el
+ * resto de sus campos (Asociado, Granja, cantidades, etc.) sigue sin poder editarse desde la app una
+ * vez capturada.
+ *
+ * A diferencia de crearRecepcionEnSharePoint(), que deja que existeConsecutivo()/el sync marquen
+ * `ConflictoConsecutivo` si hay choque, aquí es el LLAMADOR (ver el botón "Editar" en
+ * Consolidado.tsx) quien debe revisar antes con buscarRecepcionesPorConsecutivo() que el Consecutivo
+ * nuevo no le pertenezca a otra Recepción — esta función no repite esa validación, solo escribe.
+ */
+export async function actualizarConsecutivoYOrden(
+  recepcionSpId: string,
+  cambios: { Consecutivo: string; NumeroOrden: string },
+): Promise<void> {
+  await updateItem('Recepciones', recepcionSpId, cambios)
+}
+
 // NOTA HISTÓRICA (2026-09-11, octava ronda): aquí vivió el bloque de LlegadasPendientes
 // (mapFieldsALlegadaPendiente, listarLlegadasPendientesPorFecha, crearLlegadaPendiente,
 // buscarLlegadaPendientePorConsecutivo) — ver el comentario grande de `LlegadaPendiente` en
