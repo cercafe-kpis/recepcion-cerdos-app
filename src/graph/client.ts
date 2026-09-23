@@ -51,6 +51,21 @@ function conLimiteDeTiempo<T>(promesa: Promise<T>, ms: number, mensaje: string):
  * copia local en Dexie cuando esto pasa. Un login interactivo de verdad
  * solo debe pasar cuando la persona lo pide explícitamente: tocando
  * "Iniciar sesión" en PantallaLogin, o "Salir" y volviendo a entrar.
+ *
+ * **Agregado 2026-09-24** — a raíz de que este error ("...en segundo plano...") le seguía saliendo
+ * seguido a varias personas del equipo (no solo a Nathalia) en computadores donde no se puede (o no
+ * conviene) ir a cambiar la configuración de privacidad del navegador de cada uno: el botón
+ * "Confirmar sesión" del banner rojo en `Navbar.tsx` es un segundo intento MÁS LIVIANO que "Salir" +
+ * volver a entrar, para los dos mensajes de esta función que terminan en 'Cierra sesión (botón
+ * "Salir")...' (este y el de `InteractionRequiredAuthError` más abajo). Ese botón sí llama a
+ * `acquireTokenPopup()` — pero a diferencia de la versión vieja de esta función que el comentario de
+ * arriba describe, ahí SOLO se dispara desde un clic real de la persona (nunca solo, nunca en la
+ * carga de la página), así que no reintroduce la ventanita en blanco que se veía antes: un popup
+ * abierto directo dentro del manejador de un clic es lo que los navegadores sí dejan pasar sin
+ * bloquearlo. Como ese popup navega derecho al dominio real de Microsoft (no es un iframe metido
+ * dentro de esta página), no lo alcanza el bloqueo de cookies de terceros que sí tumba la técnica
+ * silenciosa de más abajo — por eso suele bastar con un parpadeo del popup abriéndose y cerrándose
+ * solo, sin pedir contraseña de nuevo, mientras la sesión de Microsoft en el navegador siga viva.
  */
 async function getAccessToken(): Promise<string> {
   // getActiveAccount() y getAllAccounts() son cosas distintas para MSAL: la primera es solo un
