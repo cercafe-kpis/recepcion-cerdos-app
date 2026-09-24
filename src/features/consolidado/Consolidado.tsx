@@ -6,6 +6,8 @@ import { cachearTiquetesDeRecepcion, guardarEdicionTiqueteLocal, sincronizar } f
 import {
   actualizarConsecutivoYOrden,
   buscarRecepcionesPorConsecutivo,
+  decrementarConteoOrigenTiquete,
+  eliminarTiquete,
   generarTiquetesFaltantes,
   generarTiquetesNovedadCorral,
   listarRecepcionesPorRangoFecha,
@@ -54,6 +56,9 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [nuevoConsecutivo, setNuevoConsecutivo] = useState('')
   const [nuevoNumeroOrden, setNuevoNumeroOrden] = useState('')
   const [guardandoConsecutivo, setGuardandoConsecutivo] = useState(false)
+
+  // Eliminar novedad (2026-09-24, a pedido de Nathalia) — ver eliminarFila() más abajo.
+  const [eliminandoId, setEliminandoId] = useState<string>()
 
   const recepciones =
     useLiveQuery(
@@ -398,6 +403,43 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     }
   }
 
+  /**
+   * Elimina una fila de "novedad" (un animal) del Consolidado — a pedido de Nathalia (2026-09-24),
+   * para cuando alguien se equivoca al capturar (un animal contado de más, un tipo de novedad
+   * equivocado, etc.). Mismo candado que ya rige el resto de la pantalla (`soloLectura`, arriba):
+   * antes de "Terminar proceso" puede borrar cualquier perfil que no sea Consultor, y una vez el
+   * lote queda "Completo" solo un Administrador puede seguir haciéndolo — igual que ya pasa con
+   * editar Tiquete/Destino/Factura. Solo en línea: hace falta Graph para borrar de verdad en
+   * SharePoint (ver eliminarTiquete() en graph/lists.ts), así que no se ofrece sin conexión.
+   *
+   * Además de borrar la fila, resta 1 del conteo de origen en Recepción/Novedades en Corral que la
+   * generó (decrementarConteoOrigenTiquete(), en graph/lists.ts — llamada ANTES de eliminarTiquete()
+   * a propósito: si por algo falla, la fila no se borra, para no dejar el conteo desactualizado).
+   * Pedido explícito de Nathalia (2026-09-24, segunda ronda): sin esto, "Eliminar" dejaba el conteo
+   * de origen desincronizado y un futuro "Volver a generar tiquetes" sobre el mismo lote podía volver
+   * a crear una fila igual.
+   */
+  async function eliminarFila(t: ConsolidadoTiquete) {
+    if (!t.spId || !recepcion?.spId) return
+    const confirmar = window.confirm(
+      `¿Eliminar esta novedad (${t.GrupoNovedad} · ${t.TipoNovedad} #${t.NumeroAnimalEnLote})?\n\n` +
+        `Esto también resta 1 del conteo de esa novedad en Recepción/Novedades en Corral.\n\n` +
+        `Esta acción no se puede deshacer.`,
+    )
+    if (!confirmar) return
+    setEliminandoId(t.id)
+    setError(undefined)
+    try {
+      await decrementarConteoOrigenTiquete(t, recepcion.spId)
+      await eliminarTiquete(t.spId)
+      await db.consolidadoTiquetes.delete(t.id)
+    } catch (err) {
+      setError(`No se pudo eliminar la novedad: ${(err as Error).message}`)
+    } finally {
+      setEliminandoId(undefined)
+    }
+  }
+
   return (
     <div>
       <h1 className="text-xl font-semibold text-slate-800 print:hidden">Consolidado</h1>
@@ -659,6 +701,9 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                     <th className="px-3 py-2">Destino</th>
                     <th className="px-3 py-2">Factura</th>
                     <th className="px-3 py-2">Estado</th>
+                    <th className="px-3 py-2">
+                      <span className="sr-only">Acciones</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -667,7 +712,14 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                       key={t.id}
                       tiquete={t}
                       soloLectura={filaSoloLectura(t)}
+                      // El botón "Eliminar" usa el candado de LOTE (soloLectura), no el de tiquete
+                      // individual (filaSoloLectura) — a propósito: se puede querer borrar una
+                      // novedad completa aunque ya tenga Tiquete/Destino cargados, mientras el lote
+                      // siga "En proceso". Ver el comentario grande de eliminarFila() arriba.
+                      puedeEliminar={!soloLectura}
+                      eliminando={eliminandoId === t.id}
                       onGuardar={(cambios) => guardarCambio(t, cambios)}
+                      onEliminar={() => void eliminarFila(t)}
                     />
                   ))}
                 </tbody>
@@ -709,11 +761,17 @@ function tiqueteYaCompletado(t: ConsolidadoTiquete): boolean {
 function FilaTiquete({
   tiquete,
   soloLectura,
+  puedeEliminar,
+  eliminando,
   onGuardar,
+  onEliminar,
 }: {
   tiquete: ConsolidadoTiquete
   soloLectura: boolean
+  puedeEliminar: boolean
+  eliminando: boolean
   onGuardar: (cambios: Partial<ConsolidadoTiquete>) => void
+  onEliminar: () => void
 }) {
   const [numeroTiquete, setNumeroTiquete] = useState(tiquete.Tiquete ?? '')
   const [destino, setDestino] = useState<Destino | ''>(tiquete.Destino ?? '')
@@ -786,6 +844,19 @@ function FilaTiquete({
         </span>
         {tiquete.EstadoSync === 'Pendiente' && (
           <span className="ml-1.5 text-xs text-amber-600">sin subir</span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-right">
+        {puedeEliminar && (
+          <button
+            type="button"
+            onClick={onEliminar}
+            disabled={eliminando || !navigator.onLine}
+            title="Elimina definitivamente esta novedad de Consolidado"
+            className="text-xs font-medium text-brand-red hover:underline disabled:text-slate-300"
+          >
+            {eliminando ? 'Eliminando…' : 'Eliminar'}
+          </button>
         )}
       </td>
     </tr>
