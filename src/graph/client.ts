@@ -249,6 +249,18 @@ export async function listItems<TFields>(
   return res.value
 }
 
+/**
+ * Trae UN elemento puntual por su id — a diferencia de listItems() (que siempre trae una página de
+ * resultados), esto sirve cuando ya se conoce el id exacto y solo hace falta su valor más fresco.
+ * Usada por decrementarConteoOrigenTiquete() en graph/lists.ts para leer el conteo actual de una
+ * Recepción justo antes de restarle 1.
+ */
+export async function getItem<TFields>(list: ListName, itemId: string): Promise<GraphListItem<TFields>> {
+  const siteId = await getSiteId()
+  const listId = await getListId(list)
+  return graphFetch<GraphListItem<TFields>>(`/sites/${siteId}/lists/${listId}/items/${itemId}?$expand=fields`)
+}
+
 export async function createItem<TFields extends object>(
   list: ListName,
   fields: TFields,
