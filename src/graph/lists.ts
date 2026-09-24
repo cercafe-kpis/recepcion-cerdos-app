@@ -373,7 +373,22 @@ function mapFieldsARecepcion(item: { id: string; fields: Record<string, unknown>
     Title: String(f.Title ?? ''),
     Consecutivo: String(f.Consecutivo ?? ''),
     NumeroOrden: String(f.NumeroOrden ?? ''),
-    FechaRecepcion: String(f.FechaRecepcion ?? ''),
+    // .slice(0, 10) a propósito (bug corregido 2026-09-24, a raíz de que a Nathalia una Recepción
+    // capturada en OTRO dispositivo no le aparecía en el desplegable de "hoy" de
+    // Consolidado/Ubicación/Novedades en Corral): el dispositivo que CAPTURA guarda FechaRecepcion
+    // como fecha simple "2026-09-24" (así sale de <input type="date">, ver Recepcion.tsx) y nunca la
+    // vuelve a tocar — pero SharePoint la devuelve por Graph con hora incluida, "2026-09-24T05:00:00Z"
+    // (columna de tipo Fecha y hora), y esos 3 filtros de "hoy" comparan la fecha guardada contra la
+    // de hoy LETRA POR LETRA (`r.FechaRecepcion === hoy`) — nunca son iguales, así que en cualquier
+    // dispositivo que NO haya sido el que la capturó (la trae por Graph, vía
+    // descargarRecepcionesEnProceso() o los buscadores) la Recepción queda invisible para ese
+    // filtro, aunque sí haya llegado bien a Dexie (por eso los buscadores manuales sí la encontraban:
+    // no dependen de esa comparación). Cortar a los primeros 10 caracteres aquí, en el único lugar
+    // que traduce lo que llega de SharePoint a Recepcion, normaliza siempre a "2026-09-24" sin
+    // importar el dispositivo — mismo criterio que ya usan a la defensiva formatearFecha()/
+    // fechaCorta() en los reportes (`iso.slice(0, 10)`), así que no hay riesgo de romper esas
+    // pantallas.
+    FechaRecepcion: String(f.FechaRecepcion ?? '').slice(0, 10),
     HoraProgramada: String(f.HoraProgramada ?? ''),
     HoraLlegadaVehiculo: String(f.HoraLlegadaVehiculo ?? ''),
     // Opcionales (revertido a esto 2026-09-11, octava ronda) — ver el comentario grande junto a
