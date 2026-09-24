@@ -13,7 +13,9 @@ import {
   obtenerNovedadCorralDeRecepcion,
   reabrirLote,
 } from '../../graph/lists'
+import { esErrorDeSesion } from '../../graph/client'
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
+import { BotonConfirmarSesion } from '../../components/BotonConfirmarSesion'
 import { ReporteDiarioLote } from '../reportes/ReporteDiarioLote'
 import type { ConsolidadoTiquete, Destino, NovedadCorral, Usuario } from '../../types/models'
 
@@ -403,7 +405,12 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
         Asigna el número de tiquete y el destino (Procesado, Decomisado o Decomisado en canal) a cada animal con novedad.
       </p>
 
-      {error && <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red print:hidden">{error}</p>}
+      {error && (
+        <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red print:hidden">
+          {error}
+          {esErrorDeSesion(error) && <BotonConfirmarSesion alConfirmar={() => setError(undefined)} />}
+        </p>
+      )}
 
       <div className="mt-4 max-w-sm print:hidden">
         <CampoSelect
