@@ -590,10 +590,10 @@ export async function marcarBeneficiadoMismoDia(recepcionSpId: string, valor: bo
 /**
  * Corrige Consecutivo y/o Número de orden de una Recepción YA sincronizada — a pedido de Nathalia
  * (2026-09-26), para cuando alguien se equivoca al digitarlos y el error solo se nota después (ej.
- * al buscar el lote y no encontrarlo, o al notar un Consecutivo repetido). Es la ÚNICA edición que
- * se permite sobre una Recepción ya creada aparte de EstadoLote/BeneficiadoMismoDia de arriba — el
- * resto de sus campos (Asociado, Granja, cantidades, etc.) sigue sin poder editarse desde la app una
- * vez capturada.
+ * al buscar el lote y no encontrarlo, o al notar un Consecutivo repetido). Junto con
+ * actualizarGranjaDeRecepcion() de abajo, son las ÚNICAS ediciones que se permiten sobre una
+ * Recepción ya creada aparte de EstadoLote/BeneficiadoMismoDia — el resto de sus campos (Asociado,
+ * cantidades, etc.) sigue sin poder editarse desde la app una vez capturada.
  *
  * A diferencia de crearRecepcionEnSharePoint(), que deja que existeConsecutivo()/el sync marquen
  * `ConflictoConsecutivo` si hay choque, aquí es el LLAMADOR (ver el botón "Editar" en
@@ -605,6 +605,25 @@ export async function actualizarConsecutivoYOrden(
   cambios: { Consecutivo: string; NumeroOrden: string },
 ): Promise<void> {
   await updateItem('Recepciones', recepcionSpId, cambios)
+}
+
+/**
+ * Corrige la Granja de una Recepción YA sincronizada — a pedido de Nathalia (2026-09-24), para
+ * cuando se selecciona la granja equivocada al capturar. NO confundir con actualizarGranja() de
+ * arriba (esa edita la ficha maestra de una Granja en la lista `Granjas` — Title/Municipio/etc.;
+ * esta otra solo cambia CUÁL Granja apunta una Recepción puntual). A diferencia de
+ * Consecutivo/Número de orden (más abajo), que solo un Administrador puede corregir en cualquier
+ * momento, este cambio lo permite cualquier perfil que no sea Consultor MIENTRAS el lote siga "En
+ * proceso" — el mismo candado `soloLectura` que ya usa el resto de Consolidado.tsx para editar los
+ * tiquetes — y, una vez que el lote queda "Completo" con "Terminar proceso", solo un Administrador
+ * puede seguir corrigiéndola (ver el botón "Editar Granja" en Consolidado.tsx, que decide el
+ * candado).
+ *
+ * GranjaId es Lookup en SharePoint (igual que en crearRecepcionEnSharePoint() más arriba): Graph
+ * solo la acepta como `GranjaIdLookupId` con el id NUMÉRICO de la Granja, no como `GranjaId` plano.
+ */
+export async function actualizarGranjaDeRecepcion(recepcionSpId: string, granjaId: string): Promise<void> {
+  await updateItem('Recepciones', recepcionSpId, { GranjaIdLookupId: Number(granjaId) })
 }
 
 // NOTA HISTÓRICA (2026-09-11, octava ronda): aquí vivió el bloque de LlegadasPendientes
