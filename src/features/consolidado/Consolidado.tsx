@@ -5,6 +5,7 @@ import { db } from '../../offline/db'
 import { cachearTiquetesDeRecepcion, guardarEdicionTiqueteLocal, sincronizar } from '../../offline/syncService'
 import {
   actualizarConsecutivoYOrden,
+  actualizarGranjaDeRecepcion,
   buscarRecepcionesPorConsecutivo,
   decrementarConteoOrigenTiquete,
   eliminarTiquete,
@@ -59,6 +60,15 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
 
   // Eliminar novedad (2026-09-24, a pedido de Nathalia) — ver eliminarFila() más abajo.
   const [eliminandoId, setEliminandoId] = useState<string>()
+
+  // Editar Granja (2026-09-24, a pedido de Nathalia): a diferencia de Consecutivo/Número de orden
+  // (candado siempre admin-only, ver más abajo), este usa el mismo candado `soloLectura` que el
+  // resto de la pantalla — cualquiera que no sea Consultor puede corregirla mientras el lote siga
+  // "En proceso", y solo un Administrador una vez que quede "Completo". Ver guardarGranja() y
+  // actualizarGranja() en graph/lists.ts.
+  const [editandoGranja, setEditandoGranja] = useState(false)
+  const [nuevaGranjaId, setNuevaGranjaId] = useState('')
+  const [guardandoGranja, setGuardandoGranja] = useState(false)
 
   const recepciones =
     useLiveQuery(
@@ -122,6 +132,13 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const granja = useLiveQuery(() => (recepcion ? db.granjas.get(recepcion.GranjaId) : undefined), [recepcion])
   const asociado = useLiveQuery(() => (recepcion ? db.asociados.get(recepcion.AsociadoId) : undefined), [recepcion])
   const vehiculo = useLiveQuery(() => (recepcion ? db.vehiculos.get(recepcion.PlacaVehiculoId) : undefined), [recepcion])
+  // Opciones para "Editar Granja" — mismo criterio que el combo de Recepcion.tsx: solo activas y
+  // solo del mismo Asociado que ya tiene esta Recepción (Asociado no se puede corregir desde aquí).
+  const granjasDelAsociado =
+    useLiveQuery(
+      () => (recepcion ? db.granjas.where('AsociadoId').equals(recepcion.AsociadoId).filter((g) => g.Activa).toArray() : []),
+      [recepcion],
+    ) ?? []
 
   const tiquetes =
     useLiveQuery(
@@ -396,6 +413,32 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     }
   }
 
+  function empezarEdicionGranja() {
+    if (!recepcion) return
+    setNuevaGranjaId(recepcion.GranjaId)
+    setError(undefined)
+    setEditandoGranja(true)
+  }
+
+  async function guardarGranja() {
+    if (!recepcion?.spId) return
+    if (!nuevaGranjaId) {
+      setError('Selecciona una Granja.')
+      return
+    }
+    setGuardandoGranja(true)
+    setError(undefined)
+    try {
+      await actualizarGranjaDeRecepcion(recepcion.spId, nuevaGranjaId)
+      await db.recepciones.update(recepcion.id, { GranjaId: nuevaGranjaId })
+      setEditandoGranja(false)
+    } catch (err) {
+      setError(`No se pudo guardar el cambio: ${(err as Error).message}`)
+    } finally {
+      setGuardandoGranja(false)
+    }
+  }
+
   async function guardarCambio(t: ConsolidadoTiquete, cambios: Partial<ConsolidadoTiquete>) {
     await guardarEdicionTiqueteLocal(t.id, cambios)
     if (navigator.onLine) {
@@ -528,7 +571,17 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
           <div className="mt-5 rounded-lg border border-slate-200 bg-white p-4 print:hidden">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Dato etiqueta="Fecha" valor={recepcion.FechaRecepcion} />
-              <Dato etiqueta="Granja" valor={granja?.Title ?? '—'} />
+              {editandoGranja ? (
+                <CampoSelect
+                  etiqueta="Granja"
+                  requerido
+                  value={nuevaGranjaId}
+                  onChange={(e) => setNuevaGranjaId(e.target.value)}
+                  opciones={granjasDelAsociado.map((g) => ({ value: g.id, label: g.Title }))}
+                />
+              ) : (
+                <Dato etiqueta="Granja" valor={granja?.Title ?? '—'} />
+              )}
               {editandoConsecutivo ? (
                 <>
                   <CampoTexto
@@ -588,6 +641,47 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                     className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
                   >
                     Editar Consecutivo / Número de orden
+                  </button>
+                )}
+              </div>
+            )}
+            {/* Editar Granja (2026-09-24, a pedido de Nathalia) — a diferencia del candado de
+                arriba (siempre Administrador), este usa `soloLectura`: cualquiera que no sea
+                Consultor puede corregirla mientras el lote siga "En proceso", y una vez
+                "Completo" solo un Administrador (ver actualizarGranja() en graph/lists.ts). */}
+            {!soloLectura && (
+              <div className="mt-3 flex items-center gap-3">
+                {editandoGranja ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void guardarGranja()}
+                      disabled={guardandoGranja || !navigator.onLine}
+                      className="rounded-md bg-brand-navy px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-navy-hover disabled:opacity-50"
+                    >
+                      {guardandoGranja ? 'Guardando…' : 'Guardar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditandoGranja(false)
+                        setError(undefined)
+                      }}
+                      disabled={guardandoGranja}
+                      className="text-xs font-medium text-slate-500 hover:text-brand-red disabled:opacity-50"
+                    >
+                      Cancelar
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={empezarEdicionGranja}
+                    disabled={!navigator.onLine}
+                    title="Corregir la Granja por un error de captura"
+                    className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
+                  >
+                    Editar Granja
                   </button>
                 )}
               </div>
