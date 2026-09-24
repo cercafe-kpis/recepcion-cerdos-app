@@ -1,11 +1,11 @@
-import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useMsal } from '@azure/msal-react'
 import clsx from 'clsx'
 import type { Usuario } from '../types/models'
 import { useEstadoSync } from '../offline/useEstadoSync'
 import { aplicarActualizacionDisponible, useActualizacionDisponible } from '../registrarServiceWorker'
-import { graphScopes } from '../auth/msalConfig'
+import { esErrorDeSesion } from '../graph/client'
+import { BotonConfirmarSesion } from './BotonConfirmarSesion'
 
 const BASE = import.meta.env.BASE_URL
 
@@ -18,51 +18,11 @@ const ENLACES = [
   { to: '/reporte', label: 'Reporte' },
 ]
 
-/**
- * Los 2 mensajes que arma getAccessToken() (src/graph/client.ts) cuando la renovación silenciosa de
- * la sesión de Microsoft falla (sesión vencida, o renovación en segundo plano bloqueada por el
- * navegador) terminan siempre en esta misma frase — se usa para detectarlos entre el resto de
- * errores de sincronización (que no tienen arreglo con un clic, solo con "Descartar") y ofrecerles
- * el botón "Confirmar sesión" de abajo. Se busca por esta frase, no por el mensaje completo, porque
- * cada uno llega con un prefijo distinto según qué parte de sincronizar() falló (ver syncService.ts).
- */
-function esErrorDeSesion(mensajes: string[]): boolean {
-  return mensajes.some((m) => m.includes('Cierra sesión (botón "Salir")'))
-}
-
 export function Navbar({ usuario }: { usuario: Usuario }) {
   const { instance } = useMsal()
   const { enLinea, pendientes, conflictos, sincronizando, ultimoErrorSync, descartarErrorSync, sincronizarAhora } =
     useEstadoSync()
   const hayActualizacion = useActualizacionDisponible()
-  const [confirmandoSesion, setConfirmandoSesion] = useState(false)
-  const [errorConfirmacion, setErrorConfirmacion] = useState<string>()
-
-  /**
-   * Alternativa más liviana a "Salir" + volver a entrar para el error de sesión de arriba — ver el
-   * comentario grande agregado el 2026-09-24 en getAccessToken() (src/graph/client.ts) sobre por qué
-   * un popup disparado DESDE ESTE CLIC (nunca solo) es seguro y por qué suele bastar con un parpadeo
-   * sin pedir contraseña. Si de verdad hace falta autenticarse de nuevo (o el navegador bloquea el
-   * popup), acquireTokenPopup() se encarga de pedirlo ahí mismo; si el popup no se puede abrir en lo
-   * absoluto, cae al catch de abajo y se sigue sugiriendo "Salir" como respaldo.
-   */
-  async function confirmarSesion() {
-    const cuenta = instance.getActiveAccount()
-    if (!cuenta) return
-    setConfirmandoSesion(true)
-    setErrorConfirmacion(undefined)
-    try {
-      await instance.acquireTokenPopup({ scopes: graphScopes, account: cuenta })
-      await descartarErrorSync()
-      void sincronizarAhora(usuario.Correo)
-    } catch {
-      setErrorConfirmacion(
-        'No se pudo confirmar con la ventana emergente — revisa que el navegador no la haya bloqueado para este sitio, o usa "Salir" y vuelve a iniciar sesión.',
-      )
-    } finally {
-      setConfirmandoSesion(false)
-    }
-  }
 
   return (
     <header className="border-b border-slate-200 bg-white print:hidden">
@@ -172,18 +132,15 @@ export function Navbar({ usuario }: { usuario: Usuario }) {
                   <li key={i}>{m}</li>
                 ))}
               </ul>
-              {errorConfirmacion && <p className="mt-1 font-medium">{errorConfirmacion}</p>}
             </div>
             <div className="flex shrink-0 items-center gap-3">
-              {esErrorDeSesion(ultimoErrorSync.mensajes) && (
-                <button
-                  type="button"
-                  onClick={() => void confirmarSesion()}
-                  disabled={confirmandoSesion}
-                  className="rounded-md border border-brand-red/40 px-2 py-1 text-xs font-medium text-brand-red hover:bg-red-100 disabled:opacity-50"
-                >
-                  {confirmandoSesion ? 'Confirmando…' : 'Confirmar sesión'}
-                </button>
+              {ultimoErrorSync.mensajes.some(esErrorDeSesion) && (
+                <BotonConfirmarSesion
+                  alConfirmar={async () => {
+                    await descartarErrorSync()
+                    void sincronizarAhora(usuario.Correo)
+                  }}
+                />
               )}
               <button
                 type="button"
