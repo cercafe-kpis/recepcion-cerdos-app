@@ -277,10 +277,32 @@ async function sincronizarTiquetesPendientes(resultado: ResultadoSync): Promise<
  * se pierda la conexión justo después. Se llama automáticamente al generar
  * tiquetes nuevos durante sincronizar(), y también la usa Consolidado.tsx
  * como botón de "Actualizar" manual.
+ *
+ * Además de agregar/actualizar (bulkPut), BORRA de Dexie cualquier tiquete de
+ * esta Recepción que ya no venga en la respuesta de Graph (2026-09-24, bug
+ * reportado por Nathalia: eliminó una novedad en Consolidado desde el celular
+ * y en el computador seguía apareciendo). Antes esta función solo agregaba —
+ * nunca sacaba nada — así que un tiquete borrado con eliminarTiquete() en
+ * OTRO dispositivo se quedaba huérfano para siempre en cualquier dispositivo
+ * que ya lo hubiera cacheado antes del borrado, sin importar cuántas veces
+ * se le diera a "Actualizar desde SharePoint". Es seguro comparar por `id`
+ * porque, a diferencia de Recepcion/Ubicacion/NovedadCorral, un
+ * ConsolidadoTiquete SIEMPRE se crea directo contra Graph (nunca sin
+ * conexión) — ver el comentario en listarTiquetesDeRecepcion() — así que no
+ * existe un tiquete "pendiente de subir" con id solo local que este borrado
+ * pudiera pisar por error.
  */
 export async function cachearTiquetesDeRecepcion(recepcionSpId: string): Promise<void> {
   const tiquetes = await listarTiquetesDeRecepcion(recepcionSpId)
-  await db.consolidadoTiquetes.bulkPut(tiquetes)
+  const idsFrescos = new Set(tiquetes.map((t) => t.id))
+  await db.transaction('rw', db.consolidadoTiquetes, async () => {
+    await db.consolidadoTiquetes.bulkPut(tiquetes)
+    const locales = await db.consolidadoTiquetes.where('RecepcionId').equals(recepcionSpId).toArray()
+    const idsABorrar = locales.filter((t) => !idsFrescos.has(t.id)).map((t) => t.id)
+    if (idsABorrar.length > 0) {
+      await db.consolidadoTiquetes.bulkDelete(idsABorrar)
+    }
+  })
 }
 
 /** Registra localmente (siempre, con o sin conexión) la edición de un tiquete hecha en pantalla. */
