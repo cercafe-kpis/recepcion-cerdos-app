@@ -9,7 +9,9 @@ import {
   existeNovedadCorralDeRecepcion,
   listarRecepcionesPorRangoFecha,
 } from '../../graph/lists'
+import { esErrorDeSesion } from '../../graph/client'
 import { CampoCheckbox, CampoSelect, CampoTexto, SeccionFormulario } from '../../components/CamposFormulario'
+import { BotonConfirmarSesion } from '../../components/BotonConfirmarSesion'
 import { novedadCorralSchema, type NovedadCorralFormInput, type NovedadCorralFormValues } from './novedadCorralSchema'
 import type { NovedadCorral, Usuario } from '../../types/models'
 
@@ -198,7 +200,10 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
 
       {mensaje && <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{mensaje}</p>}
       {errorBusqueda && (
-        <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">{errorBusqueda}</p>
+        <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">
+          {errorBusqueda}
+          {esErrorDeSesion(errorBusqueda) && <BotonConfirmarSesion alConfirmar={() => setErrorBusqueda(undefined)} />}
+        </p>
       )}
 
       <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} className="mt-4 space-y-5">
