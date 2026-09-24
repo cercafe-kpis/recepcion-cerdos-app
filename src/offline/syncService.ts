@@ -70,9 +70,20 @@ export async function descargarMaestros(): Promise<void> {
 export async function descargarRecepcionesEnProceso(): Promise<void> {
   const remotas = await listarRecepcionesEnProceso()
   for (const rec of remotas) {
-    const yaExiste = await db.recepciones.where('spId').equals(rec.spId as string).first()
-    if (!yaExiste) {
+    const local = await db.recepciones.where('spId').equals(rec.spId as string).first()
+    if (!local) {
       await db.recepciones.put(rec)
+    } else if (local.FechaRecepcion !== rec.FechaRecepcion) {
+      // Autocorrección puntual (2026-09-24): antes de normalizar FechaRecepcion en
+      // mapFieldsARecepcion() (graph/lists.ts), una Recepción descargada en OTRO dispositivo
+      // podía quedar guardada aquí con fecha-hora completa ("2026-09-24T05:00:00Z") en vez de
+      // solo fecha ("2026-09-24"), lo que la escondía del desplegable de "hoy" en
+      // Consolidado/Ubicación/NovedadesCorral (comparan con === contra la fecha de hoy). Un
+      // dispositivo que ya la había descargado ANTES de esa corrección se la salta siempre (el
+      // `if (!local)` de arriba), así que nunca se autocorregía sola. Este parche solo toca
+      // FechaRecepcion — nunca pisa el resto del registro local — y una vez corrido en cada
+      // dispositivo afectado esta rama deja de ejecutarse (las fechas ya coinciden).
+      await db.recepciones.update(local.id, { FechaRecepcion: rec.FechaRecepcion })
     }
   }
 }
