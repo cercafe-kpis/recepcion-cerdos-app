@@ -120,6 +120,20 @@ async function getAccessToken(): Promise<string> {
   }
 }
 
+/**
+ * Detecta si un mensaje de error es uno de los 2 que arma getAccessToken() de arriba (sesión
+ * vencida, o renovación en segundo plano bloqueada por el navegador) — ambos terminan siempre en
+ * esta misma frase. Se usa en CUALQUIER pantalla que muestre su propio banner de error después de
+ * llamar directo a una función de graph/lists.ts (Consolidado.tsx, NovedadesCorral.tsx,
+ * Ubicacion.tsx ya lo hacían para sus buscadores por fecha/Consecutivo, antes de que el 2026-09-24
+ * saliera este mismo error también AHÍ, no solo en el banner global de sincronización de
+ * Navbar.tsx) para decidir si mostrar el botón "Confirmar sesión" (ver
+ * src/components/BotonConfirmarSesion.tsx) junto al mensaje.
+ */
+export function esErrorDeSesion(mensaje: string): boolean {
+  return mensaje.includes('Cierra sesión (botón "Salir")')
+}
+
 async function graphFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await getAccessToken()
   const res = await fetch(`${GRAPH_ROOT}${path}`, {
