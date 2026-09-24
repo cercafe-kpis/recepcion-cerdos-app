@@ -5,7 +5,9 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../../offline/db'
 import { sincronizar } from '../../offline/syncService'
 import { buscarRecepcionesPorConsecutivo, listarRecepcionesPorRangoFecha } from '../../graph/lists'
+import { esErrorDeSesion } from '../../graph/client'
 import { CampoCheckbox, CampoSelect, CampoTexto, SeccionFormulario } from '../../components/CamposFormulario'
+import { BotonConfirmarSesion } from '../../components/BotonConfirmarSesion'
 import { ubicacionSchema, type UbicacionFormInput, type UbicacionFormValues } from './ubicacionSchema'
 import type { Ubicacion as UbicacionModelo, Usuario } from '../../types/models'
 
@@ -191,7 +193,10 @@ export function Ubicacion({ usuario }: { usuario: Usuario }) {
 
       {mensaje && <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{mensaje}</p>}
       {errorBusqueda && (
-        <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">{errorBusqueda}</p>
+        <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">
+          {errorBusqueda}
+          {esErrorDeSesion(errorBusqueda) && <BotonConfirmarSesion alConfirmar={() => setErrorBusqueda(undefined)} />}
+        </p>
       )}
 
       <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} className="mt-4 space-y-5">
