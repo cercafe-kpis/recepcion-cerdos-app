@@ -353,6 +353,55 @@ export async function existeConsecutivo(consecutivo: string): Promise<boolean> {
 }
 
 /**
+ * HoraProgramada/HoraLlegadaVehiculo/HoraInicioDesembarque/HoraFinalDesembarque se ESCRIBEN siempre
+ * con el offset fijo "-05:00" (ver combinarFechaHora() en Recepcion.tsx y Consolidado.tsx), pero lo
+ * que Graph devuelve para esas mismas columnas al LEERLAS (por ejemplo desde
+ * listarRecepcionesPorRangoFecha(), que usan las pestañas "Diario"/"Semanal" de Reporte.tsx) viene
+ * corrido — confirmado con Nathalia 2026-09-28: corrigió las horas de la Recepción 12645 con
+ * "Editar horas" en Consolidado (quedaron bien en la lista de SharePoint: 06:49/07:36/07:50), pero
+ * el reporte de esa misma Recepción — que trae los datos directo de Graph, sin pasar por Dexie, ver
+ * el comentario grande al inicio de Reporte.tsx — seguía mostrando 13:49/14:36/14:50 incluso
+ * después de regenerarlo (se descartó que fuera solo un retraso del índice de búsqueda de
+ * SharePoint en las columnas no indexadas, como el que ya se conocía).
+ *
+ * La causa raíz se confirmó revisando la Configuración regional del sitio de SharePoint: la Zona
+ * horaria estaba mal puesta en "(UTC-08:00) Hora del Pacífico (EE.UU. y Canadá)" en vez de
+ * "(UTC-05:00) Bogotá, Lima, Quito, Rio Branco". Pacífico observa horario de verano (DST), así que
+ * en la fecha en que se midió el desfase (finales de septiembre) ese huso estaba efectivamente en
+ * -07:00, no en -08:00 — por eso la diferencia observada fue de 7 horas exactas y no de 8 ni de las
+ * 5 que corresponden a Bogotá. Microsoft Graph siempre devuelve estas columnas "Fecha y hora" como
+ * instantes UTC absolutos (con "Z"), sin importar la zona horaria configurada en el sitio — es la
+ * propia interfaz de SharePoint la que las convierte a la zona del sitio solo para MOSTRARlas. Por
+ * eso esta corrección es necesaria pase lo que pase con esa configuración: Graph nunca la aplica por
+ * su cuenta, así que este es el único lugar donde se deshace.
+ *
+ * Nathalia ya corrigió la Zona horaria del sitio a Bogotá, así que el valor correcto y estable de
+ * aquí en adelante es restar 5 horas (el offset fijo de Bogotá, sin DST) — no 7. Importante: cambiar
+ * la configuración del sitio NO reinterpreta los datos ya guardados con la configuración anterior
+ * (confirmado: tras el cambio, SharePoint pasó de mostrar "06:49" a mostrar "08:..." para el mismo
+ * valor guardado de la Recepción 12645) — los registros ya escritos bajo la zona horaria incorrecta
+ * deben volver a guardarse (por ejemplo con "Editar horas" en Consolidado) para que Graph los
+ * reciba y devuelva ya bajo la interpretación correcta de Bogotá.
+ *
+ * Se usan los métodos getUTC*() sobre el Date ya desplazado (nunca getHours() ni
+ * toLocaleString()) para que el resultado NUNCA dependa de en qué zona horaria esté configurado el
+ * navegador que hace la lectura — mismo criterio que el resto de la app para estas horas.
+ */
+const CORRECCION_HORAS_GRAPH_MS = 5 * 60 * 60 * 1000
+
+function horaDeGraphAHoraLocal(valor: unknown): string | undefined {
+  const cruda = valor === undefined || valor === null ? '' : String(valor)
+  if (!cruda) return undefined
+  const instante = new Date(cruda)
+  if (Number.isNaN(instante.getTime())) return cruda
+  const local = new Date(instante.getTime() - CORRECCION_HORAS_GRAPH_MS)
+  const dosDigitos = (n: number) => String(n).padStart(2, '0')
+  const fecha = `${local.getUTCFullYear()}-${dosDigitos(local.getUTCMonth() + 1)}-${dosDigitos(local.getUTCDate())}`
+  const hora = `${dosDigitos(local.getUTCHours())}:${dosDigitos(local.getUTCMinutes())}:${dosDigitos(local.getUTCSeconds())}`
+  return `${fecha}T${hora}-05:00`
+}
+
+/**
  * Reconstruye un Recepcion completo a partir de lo que devuelve Graph —
  * exactamente lo contrario de mapRecepcionAFields() de aquí abajo. Se usa
  * SOLO para traer a un dispositivo Recepciones que otro dispositivo ya
@@ -389,13 +438,15 @@ function mapFieldsARecepcion(item: { id: string; fields: Record<string, unknown>
     // fechaCorta() en los reportes (`iso.slice(0, 10)`), así que no hay riesgo de romper esas
     // pantallas.
     FechaRecepcion: String(f.FechaRecepcion ?? '').slice(0, 10),
-    HoraProgramada: String(f.HoraProgramada ?? ''),
-    HoraLlegadaVehiculo: String(f.HoraLlegadaVehiculo ?? ''),
+    // horaDeGraphAHoraLocal() arriba deshace el desfase con el que Graph devuelve estas 4 horas —
+    // ver el comentario grande junto a esa función sobre el caso real que lo confirmó.
+    HoraProgramada: horaDeGraphAHoraLocal(f.HoraProgramada) ?? '',
+    HoraLlegadaVehiculo: horaDeGraphAHoraLocal(f.HoraLlegadaVehiculo) ?? '',
     // Opcionales (revertido a esto 2026-09-11, octava ronda) — ver el comentario grande junto a
     // estos 2 campos en src/types/models.ts. `undefined` en vez de '' cuando SharePoint no tiene
     // valor, para que mapRecepcionAFields() no vuelva a mandar una cadena vacía al reescribir.
-    HoraInicioDesembarque: f.HoraInicioDesembarque ? String(f.HoraInicioDesembarque) : undefined,
-    HoraFinalDesembarque: f.HoraFinalDesembarque ? String(f.HoraFinalDesembarque) : undefined,
+    HoraInicioDesembarque: horaDeGraphAHoraLocal(f.HoraInicioDesembarque),
+    HoraFinalDesembarque: horaDeGraphAHoraLocal(f.HoraFinalDesembarque),
     AsociadoId: String(f.AsociadoIdLookupId ?? ''),
     GranjaId: String(f.GranjaIdLookupId ?? ''),
     NumeroTotalCerdos: Number(f.NumeroTotalCerdos ?? 0),
