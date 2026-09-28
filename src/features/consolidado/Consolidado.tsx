@@ -6,6 +6,7 @@ import { cachearTiquetesDeRecepcion, guardarEdicionTiqueteLocal, sincronizar } f
 import {
   actualizarConsecutivoYOrden,
   actualizarGranjaDeRecepcion,
+  actualizarHorasDeRecepcion,
   buscarRecepcionesPorConsecutivo,
   decrementarConteoOrigenTiquete,
   eliminarTiquete,
@@ -24,6 +25,20 @@ import type { ConsolidadoTiquete, Destino, NovedadCorral, Usuario } from '../../
 
 function hoyISO() {
   return new Date().toISOString().slice(0, 10)
+}
+
+/** Mismo criterio que combinarFechaHora() en Recepcion.tsx — ver el comentario grande allá sobre
+ * por qué se usa un offset fijo -05:00 en vez de dejar que el navegador ponga el suyo. */
+function combinarFechaHora(fecha: string, hora: string): string {
+  return `${fecha}T${hora}:00-05:00`
+}
+
+/** Contraparte de combinarFechaHora(): saca "HH:MM" de una fecha-hora ISO guardada, para precargar
+ * el <input type="time"> al entrar a editar. Mismo criterio que horaCorta() en los reportes
+ * (ReporteDiarioLote.tsx/ReporteCierreDiario.tsx, `iso.slice(11, 16)`). */
+function horaCorta(iso: string | undefined): string {
+  if (!iso || iso.length < 16) return ''
+  return iso.slice(11, 16)
 }
 
 /**
@@ -69,6 +84,16 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [editandoGranja, setEditandoGranja] = useState(false)
   const [nuevaGranjaId, setNuevaGranjaId] = useState('')
   const [guardandoGranja, setGuardandoGranja] = useState(false)
+
+  // Editar horas (2026-09-28, a pedido de Nathalia) — mismo candado que Consecutivo/Número de
+  // orden arriba: solo Administrador, en cualquier momento (no usa `soloLectura` como Granja). Ver
+  // empezarEdicionHoras()/guardarHoras() más abajo y actualizarHorasDeRecepcion() en graph/lists.ts.
+  const [editandoHoras, setEditandoHoras] = useState(false)
+  const [nuevaHoraProgramada, setNuevaHoraProgramada] = useState('')
+  const [nuevaHoraLlegadaVehiculo, setNuevaHoraLlegadaVehiculo] = useState('')
+  const [nuevaHoraInicioDesembarque, setNuevaHoraInicioDesembarque] = useState('')
+  const [nuevaHoraFinalDesembarque, setNuevaHoraFinalDesembarque] = useState('')
+  const [guardandoHoras, setGuardandoHoras] = useState(false)
 
   const recepciones =
     useLiveQuery(
@@ -439,6 +464,54 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     }
   }
 
+  function empezarEdicionHoras() {
+    if (!recepcion) return
+    setNuevaHoraProgramada(horaCorta(recepcion.HoraProgramada))
+    setNuevaHoraLlegadaVehiculo(horaCorta(recepcion.HoraLlegadaVehiculo))
+    setNuevaHoraInicioDesembarque(horaCorta(recepcion.HoraInicioDesembarque))
+    setNuevaHoraFinalDesembarque(horaCorta(recepcion.HoraFinalDesembarque))
+    setError(undefined)
+    setEditandoHoras(true)
+  }
+
+  async function guardarHoras() {
+    if (!recepcion?.spId) return
+    if (!nuevaHoraProgramada || !nuevaHoraLlegadaVehiculo) {
+      setError('Hora programada y Hora de llegada del vehículo son obligatorias.')
+      return
+    }
+    setGuardandoHoras(true)
+    setError(undefined)
+    try {
+      const cambios = {
+        HoraProgramada: combinarFechaHora(recepcion.FechaRecepcion, nuevaHoraProgramada),
+        HoraLlegadaVehiculo: combinarFechaHora(recepcion.FechaRecepcion, nuevaHoraLlegadaVehiculo),
+        // Opcionales: '' en el input significa "se borró a propósito" (algunos lotes llegan
+        // después de la jornada y esta hora nunca se llega a saber, ver el comentario junto a
+        // estos 2 campos en src/types/models.ts) — se manda `null` para borrarla de verdad en
+        // SharePoint, no `undefined` (que actualizarHorasDeRecepcion() interpreta como "no tocar").
+        HoraInicioDesembarque: nuevaHoraInicioDesembarque
+          ? combinarFechaHora(recepcion.FechaRecepcion, nuevaHoraInicioDesembarque)
+          : null,
+        HoraFinalDesembarque: nuevaHoraFinalDesembarque
+          ? combinarFechaHora(recepcion.FechaRecepcion, nuevaHoraFinalDesembarque)
+          : null,
+      }
+      await actualizarHorasDeRecepcion(recepcion.spId, cambios)
+      await db.recepciones.update(recepcion.id, {
+        HoraProgramada: cambios.HoraProgramada,
+        HoraLlegadaVehiculo: cambios.HoraLlegadaVehiculo,
+        HoraInicioDesembarque: cambios.HoraInicioDesembarque ?? undefined,
+        HoraFinalDesembarque: cambios.HoraFinalDesembarque ?? undefined,
+      })
+      setEditandoHoras(false)
+    } catch (err) {
+      setError(`No se pudo guardar el cambio: ${(err as Error).message}`)
+    } finally {
+      setGuardandoHoras(false)
+    }
+  }
+
   async function guardarCambio(t: ConsolidadoTiquete, cambios: Partial<ConsolidadoTiquete>) {
     await guardarEdicionTiqueteLocal(t.id, cambios)
     if (navigator.onLine) {
@@ -603,6 +676,45 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                   <Dato etiqueta="Número de orden" valor={recepcion.NumeroOrden} />
                 </>
               )}
+              {editandoHoras ? (
+                <>
+                  <CampoTexto
+                    type="time"
+                    etiqueta="Hora programada"
+                    requerido
+                    value={nuevaHoraProgramada}
+                    onChange={(e) => setNuevaHoraProgramada(e.target.value)}
+                  />
+                  <CampoTexto
+                    type="time"
+                    etiqueta="Hora de llegada del vehículo"
+                    requerido
+                    value={nuevaHoraLlegadaVehiculo}
+                    onChange={(e) => setNuevaHoraLlegadaVehiculo(e.target.value)}
+                  />
+                  <CampoTexto
+                    type="time"
+                    etiqueta="Hora de inicio de desembarque"
+                    ayuda="Opcional"
+                    value={nuevaHoraInicioDesembarque}
+                    onChange={(e) => setNuevaHoraInicioDesembarque(e.target.value)}
+                  />
+                  <CampoTexto
+                    type="time"
+                    etiqueta="Hora final de desembarque"
+                    ayuda="Opcional"
+                    value={nuevaHoraFinalDesembarque}
+                    onChange={(e) => setNuevaHoraFinalDesembarque(e.target.value)}
+                  />
+                </>
+              ) : (
+                <>
+                  <Dato etiqueta="Hora programada" valor={horaCorta(recepcion.HoraProgramada) || '—'} />
+                  <Dato etiqueta="Hora llegada vehículo" valor={horaCorta(recepcion.HoraLlegadaVehiculo) || '—'} />
+                  <Dato etiqueta="Hora inicio desembarque" valor={horaCorta(recepcion.HoraInicioDesembarque) || '—'} />
+                  <Dato etiqueta="Hora final desembarque" valor={horaCorta(recepcion.HoraFinalDesembarque) || '—'} />
+                </>
+              )}
             </div>
             {/* Editar Consecutivo/Número de orden — solo Administrador y solo en línea (hace falta
                 Graph para revisar que el Consecutivo nuevo no esté repetido y para guardar el
@@ -641,6 +753,46 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                     className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
                   >
                     Editar Consecutivo / Número de orden
+                  </button>
+                )}
+              </div>
+            )}
+            {/* Editar horas (2026-09-28, a pedido de Nathalia) — mismo candado que Consecutivo/
+                Número de orden arriba: solo Administrador, en cualquier momento. Ver
+                guardarHoras() y actualizarHorasDeRecepcion() en graph/lists.ts. */}
+            {esAdmin && (
+              <div className="mt-3 flex items-center gap-3">
+                {editandoHoras ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void guardarHoras()}
+                      disabled={guardandoHoras || !navigator.onLine}
+                      className="rounded-md bg-brand-navy px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-navy-hover disabled:opacity-50"
+                    >
+                      {guardandoHoras ? 'Guardando…' : 'Guardar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditandoHoras(false)
+                        setError(undefined)
+                      }}
+                      disabled={guardandoHoras}
+                      className="text-xs font-medium text-slate-500 hover:text-brand-red disabled:opacity-50"
+                    >
+                      Cancelar
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={empezarEdicionHoras}
+                    disabled={!navigator.onLine}
+                    title="Corregir Hora programada, Hora de llegada del vehículo, Hora de inicio de desembarque o Hora final de desembarque por un error de captura"
+                    className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
+                  >
+                    Editar horas
                   </button>
                 )}
               </div>
