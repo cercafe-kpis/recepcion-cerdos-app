@@ -626,6 +626,32 @@ export async function actualizarGranjaDeRecepcion(recepcionSpId: string, granjaI
   await updateItem('Recepciones', recepcionSpId, { GranjaIdLookupId: Number(granjaId) })
 }
 
+/**
+ * Corrige las 4 horas de una Recepción YA sincronizada — a pedido de Nathalia (2026-09-28), para
+ * cuando alguna quedó mal digitada y solo se nota después. Mismo candado que Consecutivo/Número de
+ * orden (arriba): solo un Administrador, en cualquier momento (no depende de si el lote sigue "En
+ * proceso" o ya quedó "Completo") — a diferencia de Granja, que sí usa el candado `soloLectura`. Ver
+ * el botón "Editar horas" en Consolidado.tsx.
+ *
+ * Los valores ya deben venir combinados con la fecha de la Recepción y con el offset fijo -05:00
+ * (mismo formato que combinarFechaHora() en Recepcion.tsx, ej. "2026-09-24T08:30:00-05:00") — esta
+ * función no hace ninguna conversión, solo escribe lo que le llegue. HoraInicioDesembarque y
+ * HoraFinalDesembarque son opcionales (ver el comentario grande junto a esos campos en
+ * src/types/models.ts): `undefined` los deja sin tocar (por ejemplo si el llamador no incluyó esa
+ * clave), pero para BORRAR una ya guardada hay que mandar explícitamente `null`.
+ */
+export async function actualizarHorasDeRecepcion(
+  recepcionSpId: string,
+  cambios: {
+    HoraProgramada: string
+    HoraLlegadaVehiculo: string
+    HoraInicioDesembarque?: string | null
+    HoraFinalDesembarque?: string | null
+  },
+): Promise<void> {
+  await updateItem('Recepciones', recepcionSpId, cambios)
+}
+
 // NOTA HISTÓRICA (2026-09-11, octava ronda): aquí vivió el bloque de LlegadasPendientes
 // (mapFieldsALlegadaPendiente, listarLlegadasPendientesPorFecha, crearLlegadaPendiente,
 // buscarLlegadaPendientePorConsecutivo) — ver el comentario grande de `LlegadaPendiente` en
