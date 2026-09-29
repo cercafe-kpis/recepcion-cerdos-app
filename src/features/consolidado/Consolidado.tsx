@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { db } from '../../offline/db'
-import { cachearTiquetesDeRecepcion, guardarEdicionTiqueteLocal, sincronizar } from '../../offline/syncService'
+import {
+  cachearTiquetesDeRecepcion,
+  corregirConsecutivoConflicto,
+  descartarRecepcionConflicto,
+  guardarEdicionTiqueteLocal,
+  sincronizar,
+} from '../../offline/syncService'
 import {
   actualizarConsecutivoYOrden,
   actualizarGranjaDeRecepcion,
@@ -21,7 +27,7 @@ import { esErrorDeSesion } from '../../graph/client'
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { BotonConfirmarSesion } from '../../components/BotonConfirmarSesion'
 import { ReporteDiarioLote } from '../reportes/ReporteDiarioLote'
-import type { ConsolidadoTiquete, Destino, NovedadCorral, Usuario } from '../../types/models'
+import type { ConsolidadoTiquete, Destino, NovedadCorral, Recepcion, Usuario } from '../../types/models'
 
 function hoyISO() {
   return new Date().toISOString().slice(0, 10)
@@ -95,9 +101,24 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [nuevaHoraFinalDesembarque, setNuevaHoraFinalDesembarque] = useState('')
   const [guardandoHoras, setGuardandoHoras] = useState(false)
 
+  // Panel "Consecutivos repetidos" (2026-09-29, a pedido de Nathalia — primer caso real de este
+  // conflicto en producción): antes la app solo avisaba cuántos había (badge en Navbar.tsx), sin
+  // ninguna pantalla para resolverlos. Solo Administrador, igual que Consecutivo/Número de orden
+  // normal. Ver corregirConsecutivoConflicto()/descartarRecepcionConflicto() en syncService.ts.
+  const [editandoConflictoId, setEditandoConflictoId] = useState<string>()
+  const [consecutivoConflicto, setConsecutivoConflicto] = useState('')
+  const [numeroOrdenConflicto, setNumeroOrdenConflicto] = useState('')
+  const [resolviendoConflictoId, setResolviendoConflictoId] = useState<string>()
+
   const recepciones =
     useLiveQuery(
       () => db.recepciones.where('EstadoSync').equals('Sincronizada').reverse().sortBy('FechaRecepcion'),
+      [],
+    ) ?? []
+
+  const recepcionesConflicto =
+    useLiveQuery(
+      () => db.recepciones.where('EstadoSync').equals('ConflictoConsecutivo').reverse().sortBy('FechaRecepcion'),
       [],
     ) ?? []
 
@@ -556,6 +577,55 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     }
   }
 
+  function empezarCorregirConflicto(rec: Recepcion) {
+    setEditandoConflictoId(rec.id)
+    setConsecutivoConflicto(rec.Consecutivo)
+    setNumeroOrdenConflicto(rec.NumeroOrden)
+    setError(undefined)
+  }
+
+  /**
+   * Guarda el Consecutivo/Número de orden corregidos y deja la Recepción en 'Pendiente' otra vez
+   * (ver corregirConsecutivoConflicto() en syncService.ts). Si hay conexión, sincroniza de una vez
+   * para no hacer esperar al próximo ciclo automático — si sigue chocando (por ejemplo, un segundo
+   * error de digitación), simplemente vuelve a aparecer en este mismo panel.
+   */
+  async function guardarCorreccionConflicto(id: string) {
+    setResolviendoConflictoId(id)
+    setError(undefined)
+    try {
+      await corregirConsecutivoConflicto(id, {
+        Consecutivo: consecutivoConflicto.trim(),
+        NumeroOrden: numeroOrdenConflicto.trim(),
+      })
+      setEditandoConflictoId(undefined)
+      if (navigator.onLine) {
+        await sincronizar(usuario.Correo)
+      }
+    } catch (err) {
+      setError(`No se pudo guardar la corrección: ${(err as Error).message}`)
+    } finally {
+      setResolviendoConflictoId(undefined)
+    }
+  }
+
+  async function descartarConflicto(rec: Recepcion) {
+    const confirmar = window.confirm(
+      `¿Descartar por completo esta captura (Consecutivo ${rec.Consecutivo}, ${rec.FechaRecepcion})?\n\n` +
+        `No se va a subir a SharePoint y esta acción no se puede deshacer.`,
+    )
+    if (!confirmar) return
+    setResolviendoConflictoId(rec.id)
+    setError(undefined)
+    try {
+      await descartarRecepcionConflicto(rec.id)
+    } catch (err) {
+      setError(`No se pudo descartar: ${(err as Error).message}`)
+    } finally {
+      setResolviendoConflictoId(undefined)
+    }
+  }
+
   return (
     <div>
       <h1 className="text-xl font-semibold text-slate-800 print:hidden">Consolidado</h1>
@@ -568,6 +638,100 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
           {error}
           {esErrorDeSesion(error) && <BotonConfirmarSesion alConfirmar={() => setError(undefined)} />}
         </p>
+      )}
+
+      {/* Panel "Consecutivos repetidos" — solo Administrador, ver el comentario grande de
+          corregirConsecutivoConflicto()/descartarRecepcionConflicto() en syncService.ts. Estas
+          Recepciones nunca llegaron a crearse en SharePoint (perdieron la carrera por el Consecutivo
+          contra otro dispositivo), así que no aparecen en el selector de abajo (ese solo lista
+          'Sincronizada') ni en ningún reporte — quedan solo aquí hasta que se corrijan o se descarten. */}
+      {esAdmin && recepcionesConflicto.length > 0 && (
+        <div className="mt-4 max-w-2xl rounded-md border border-amber-300 bg-amber-50 p-3 print:hidden">
+          <p className="text-sm font-semibold text-amber-900">
+            {recepcionesConflicto.length} Consecutivo{recepcionesConflicto.length > 1 ? 's' : ''} repetido
+            {recepcionesConflicto.length > 1 ? 's' : ''} — sin subir a SharePoint
+          </p>
+          <p className="mt-1 text-xs text-amber-800">
+            Dos dispositivos usaron el mismo Consecutivo estando ambos sin conexión. Esta captura se
+            quedó guardada solo en este dispositivo. Corrígele el Consecutivo (y vuelve a intentar
+            subirla) o descártala si ya no hace falta.
+          </p>
+          <ul className="mt-3 space-y-3">
+            {recepcionesConflicto.map((rec) => (
+              <li key={rec.id} className="rounded-md border border-amber-200 bg-white p-2.5">
+                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-slate-600">
+                  <span>
+                    <strong className="text-slate-800">Fecha:</strong> {rec.FechaRecepcion}
+                  </span>
+                  <span>
+                    <strong className="text-slate-800">Consecutivo:</strong> {rec.Consecutivo}
+                  </span>
+                  <span>
+                    <strong className="text-slate-800">N.° de orden:</strong> {rec.NumeroOrden}
+                  </span>
+                  <span>
+                    <strong className="text-slate-800">N.° animales:</strong> {rec.NumeroTotalCerdos}
+                  </span>
+                </div>
+
+                {editandoConflictoId === rec.id ? (
+                  <div className="mt-2 flex flex-wrap items-end gap-2">
+                    <CampoTexto
+                      etiqueta="Nuevo Consecutivo"
+                      value={consecutivoConflicto}
+                      onChange={(e) => setConsecutivoConflicto(e.target.value)}
+                    />
+                    <CampoTexto
+                      etiqueta="Nuevo Número de orden"
+                      value={numeroOrdenConflicto}
+                      onChange={(e) => setNumeroOrdenConflicto(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void guardarCorreccionConflicto(rec.id)}
+                      disabled={
+                        resolviendoConflictoId === rec.id || !consecutivoConflicto.trim() || !numeroOrdenConflicto.trim()
+                      }
+                      className="rounded-md bg-brand-navy px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-navy-hover disabled:opacity-50"
+                    >
+                      {resolviendoConflictoId === rec.id ? 'Guardando…' : 'Guardar y reintentar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditandoConflictoId(undefined)
+                        setError(undefined)
+                      }}
+                      disabled={resolviendoConflictoId === rec.id}
+                      className="text-xs font-medium text-slate-500 hover:text-brand-red disabled:opacity-50"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-2 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => empezarCorregirConflicto(rec)}
+                      disabled={resolviendoConflictoId === rec.id}
+                      className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
+                    >
+                      Corregir Consecutivo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void descartarConflicto(rec)}
+                      disabled={resolviendoConflictoId === rec.id}
+                      className="text-xs font-medium text-brand-red hover:underline disabled:opacity-50"
+                    >
+                      {resolviendoConflictoId === rec.id ? 'Descartando…' : 'Descartar'}
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <div className="mt-4 max-w-sm print:hidden">
