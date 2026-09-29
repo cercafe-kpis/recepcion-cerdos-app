@@ -70,6 +70,13 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [verReporteInmediato, setVerReporteInmediato] = useState(false)
   const [novedadCorral, setNovedadCorral] = useState<NovedadCorral>()
   const esAdmin = usuario.Rol === 'Administrador'
+  // Panel "Consecutivos repetidos" más abajo: a diferencia de "Editar Consecutivo/Número de orden"
+  // (siempre solo Administrador, porque esa edita una Recepción YA sincronizada — información que ya
+  // salió a producción), esto corrige o descarta una captura que TODAVÍA no llegó a SharePoint y que
+  // la propia persona capturó — a pedido de Nathalia (2026-09-29), para que quien audita no dependa
+  // de un Administrador cada vez que le pasa esto. Abierto a cualquiera que pueda capturar
+  // (Administrador/Supervisor/Auditor); solo Consultor, de solo lectura, se queda sin verlo.
+  const puedeResolverConflictos = usuario.Rol !== 'Consultor'
 
   // Edición de Consecutivo/Número de orden (2026-09-26, a pedido de Nathalia) — ver el botón
   // "Editar" más abajo y actualizarConsecutivoYOrden() en graph/lists.ts. Solo estos 2 campos: el
@@ -640,12 +647,17 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
         </p>
       )}
 
-      {/* Panel "Consecutivos repetidos" — solo Administrador, ver el comentario grande de
-          corregirConsecutivoConflicto()/descartarRecepcionConflicto() en syncService.ts. Estas
-          Recepciones nunca llegaron a crearse en SharePoint (perdieron la carrera por el Consecutivo
-          contra otro dispositivo), así que no aparecen en el selector de abajo (ese solo lista
-          'Sincronizada') ni en ningún reporte — quedan solo aquí hasta que se corrijan o se descarten. */}
-      {esAdmin && recepcionesConflicto.length > 0 && (
+      {/* Panel "Consecutivos repetidos" — abierto a cualquiera que no sea Consultor (ver
+          puedeResolverConflictos arriba), no solo Administrador: a diferencia de "Editar
+          Consecutivo/Número de orden" (esa sí siempre solo Administrador, porque edita una Recepción
+          YA sincronizada), esto corrige o descarta una captura que TODAVÍA no llegó a SharePoint. Ver
+          el comentario grande de corregirConsecutivoConflicto()/descartarRecepcionConflicto() en
+          syncService.ts. Estas Recepciones nunca llegaron a crearse en SharePoint (perdieron la
+          carrera por el Consecutivo contra otro dispositivo, o chocaron contra un falso positivo del
+          índice de búsqueda de SharePoint desactualizado), así que no aparecen en el selector de abajo
+          (ese solo lista 'Sincronizada') ni en ningún reporte — quedan solo aquí hasta que se
+          corrijan o se descarten. */}
+      {puedeResolverConflictos && recepcionesConflicto.length > 0 && (
         <div className="mt-4 max-w-2xl rounded-md border border-amber-300 bg-amber-50 p-3 print:hidden">
           <p className="text-sm font-semibold text-amber-900">
             {recepcionesConflicto.length} Consecutivo{recepcionesConflicto.length > 1 ? 's' : ''} repetido
