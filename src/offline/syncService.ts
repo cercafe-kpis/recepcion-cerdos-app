@@ -73,17 +73,30 @@ export async function descargarRecepcionesEnProceso(): Promise<void> {
     const local = await db.recepciones.where('spId').equals(rec.spId as string).first()
     if (!local) {
       await db.recepciones.put(rec)
-    } else if (local.FechaRecepcion !== rec.FechaRecepcion) {
-      // Autocorrección puntual (2026-09-24): antes de normalizar FechaRecepcion en
-      // mapFieldsARecepcion() (graph/lists.ts), una Recepción descargada en OTRO dispositivo
-      // podía quedar guardada aquí con fecha-hora completa ("2026-09-24T05:00:00Z") en vez de
-      // solo fecha ("2026-09-24"), lo que la escondía del desplegable de "hoy" en
-      // Consolidado/Ubicación/NovedadesCorral (comparan con === contra la fecha de hoy). Un
-      // dispositivo que ya la había descargado ANTES de esa corrección se la salta siempre (el
-      // `if (!local)` de arriba), así que nunca se autocorregía sola. Este parche solo toca
-      // FechaRecepcion — nunca pisa el resto del registro local — y una vez corrido en cada
-      // dispositivo afectado esta rama deja de ejecutarse (las fechas ya coinciden).
-      await db.recepciones.update(local.id, { FechaRecepcion: rec.FechaRecepcion })
+      continue
+    }
+    // Autocorrección puntual: un dispositivo que ya haya descargado esta Recepción ANTES de que
+    // graph/lists.ts corrigiera cómo interpreta lo que Graph devuelve se queda con el valor viejo
+    // guardado en Dexie para siempre — el `if (!local)` de arriba lo salta en cada sincronización
+    // futura. Estos 2 parches solo tocan el campo puntual que corrigen, nunca el resto del
+    // registro, y dejan de tener efecto (la comparación ya no encuentra diferencia) en cuanto el
+    // valor local se pone al día.
+    const cambios: Partial<Recepcion> = {}
+    // (2026-09-24) FechaRecepcion pasó de fecha-hora completa ("2026-09-24T05:00:00Z") a solo
+    // fecha ("2026-09-24") — ver el comentario de esa normalización en mapFieldsARecepcion() — lo
+    // que escondía la Recepción del desplegable de "hoy" en Consolidado/Ubicación/NovedadesCorral.
+    if (local.FechaRecepcion !== rec.FechaRecepcion) cambios.FechaRecepcion = rec.FechaRecepcion
+    // (2026-09-28) Las 4 horas (HoraProgramada y compañía) pasaron a corregirse por el desfase con
+    // el que Graph las devuelve — ver horaDeGraphAHoraLocal() en graph/lists.ts, a raíz de que a
+    // Nathalia el reporte de una Recepción le mostraba la hora de la tarde en vez de la de la
+    // mañana. Se compara cada una por separado porque HoraInicioDesembarque/HoraFinalDesembarque
+    // pueden quedar sin valor (`undefined`) si el lote llegó después de la jornada.
+    if (local.HoraProgramada !== rec.HoraProgramada) cambios.HoraProgramada = rec.HoraProgramada
+    if (local.HoraLlegadaVehiculo !== rec.HoraLlegadaVehiculo) cambios.HoraLlegadaVehiculo = rec.HoraLlegadaVehiculo
+    if (local.HoraInicioDesembarque !== rec.HoraInicioDesembarque) cambios.HoraInicioDesembarque = rec.HoraInicioDesembarque
+    if (local.HoraFinalDesembarque !== rec.HoraFinalDesembarque) cambios.HoraFinalDesembarque = rec.HoraFinalDesembarque
+    if (Object.keys(cambios).length > 0) {
+      await db.recepciones.update(local.id, cambios)
     }
   }
 }
@@ -184,6 +197,43 @@ async function sincronizarRecepciones(usuarioActual: string, resultado: Resultad
       resultado.errores.push(`Recepción ${rec.Consecutivo}: ${(err as Error).message}`)
     }
   }
+}
+
+/**
+ * Corrige el Consecutivo/Número de orden de una Recepción que quedó en `EstadoSync:
+ * 'ConflictoConsecutivo'` (dos dispositivos capturaron el mismo Consecutivo estando ambos sin
+ * conexión — ver el `continue` de arriba en `sincronizarRecepciones`) y la vuelve a poner en
+ * `'Pendiente'` para que la próxima sincronización la reintente. No hace falta repetir aquí la
+ * validación de `existeConsecutivo()`: `sincronizarRecepciones()` ya la vuelve a hacer en ese
+ * reintento, y si el número nuevo también choca, la Recepción simplemente vuelve a quedar en
+ * conflicto. Usada desde el panel "Consecutivos repetidos" en Consolidado.tsx (solo Administrador —
+ * a pedido de Nathalia 2026-09-29, primer caso real de este conflicto en producción: antes la app
+ * solo avisaba cuántos había, en el badge de Navbar.tsx, pero no existía ninguna forma de
+ * resolverlos desde la interfaz).
+ */
+export async function corregirConsecutivoConflicto(
+  id: string,
+  cambios: { Consecutivo: string; NumeroOrden: string },
+): Promise<void> {
+  await db.recepciones.update(id, { ...cambios, EstadoSync: 'Pendiente' })
+}
+
+/**
+ * Descarta por completo una Recepción atascada en `'ConflictoConsecutivo'` — para cuando la captura
+ * duplicada no hace falta recuperar (a diferencia de `corregirConsecutivoConflicto()`, esto NO
+ * intenta subirla a SharePoint: la borra de este dispositivo, sin poder deshacerse). También borra
+ * cualquier Ubicación/Novedad en Corral que ya se hubiera capturado localmente para esta misma
+ * Recepción — `sincronizarUbicaciones()`/`sincronizarNovedadesCorral()` esperan a que el padre tenga
+ * `spId` antes de subir a sus hijos (`if (!padre?.spId) continue`), y una Recepción descartada nunca
+ * va a tenerlo, así que sin este borrado esos registros se quedarían reintentando para siempre, sin
+ * ningún aviso en pantalla ni forma de notar el problema.
+ */
+export async function descartarRecepcionConflicto(id: string): Promise<void> {
+  await db.transaction('rw', db.recepciones, db.ubicaciones, db.novedadesCorral, async () => {
+    await db.ubicaciones.where('RecepcionId').equals(id).delete()
+    await db.novedadesCorral.where('RecepcionId').equals(id).delete()
+    await db.recepciones.delete(id)
+  })
 }
 
 async function sincronizarUbicaciones(resultado: ResultadoSync): Promise<void> {
