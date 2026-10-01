@@ -232,6 +232,24 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   }
 
   /**
+   * "Limpiar filtros" (2026-10-01, a pedido de Nathalia): borra de un solo clic los dos buscadores
+   * de abajo (Consecutivo y fecha), el mensaje de error/aviso que haya quedado de alguno de los dos
+   * (ej. "Las Recepciones de esa fecha ya estaban en este dispositivo…") y `idsFueraDeHoy`, para que
+   * el desplegable de "Recepción" vuelva a mostrar solo los lotes de hoy. Si la Recepción
+   * seleccionada en ese desplegable no es de hoy (la trajo alguno de los dos buscadores), también se
+   * des-selecciona — si no, quedaría elegida una opción que el desplegable ya no muestra.
+   */
+  function limpiarFiltros() {
+    setConsecutivoBusqueda('')
+    setFechaBusqueda('')
+    setIdsFueraDeHoy([])
+    setError(undefined)
+    if (recepcion && recepcion.FechaRecepcion !== hoy) {
+      setRecepcionId('')
+    }
+  }
+
+  /**
    * El selector de Recepción de arriba solo lista lo que YA está en Dexie en
    * ESTE dispositivo — y lo único que se trae solo, sin pedirlo, son las
    * Recepciones todavía "En proceso" (ver descargarRecepcionesEnProceso() en
@@ -810,6 +828,17 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
         Ambos buscadores traen a este dispositivo las Recepciones sincronizadas que encuentren,
         capturadas desde otro celular o computador — incluidas las que ya quedaron completas.
       </p>
+
+      <div className="mt-2 print:hidden">
+        <button
+          type="button"
+          onClick={limpiarFiltros}
+          disabled={!consecutivoBusqueda && !fechaBusqueda && idsFueraDeHoy.length === 0 && !error}
+          className="text-xs font-medium text-slate-500 hover:text-brand-red disabled:opacity-40 disabled:hover:text-slate-500"
+        >
+          Limpiar filtros
+        </button>
+      </div>
 
       {!recepcion && recepciones.length === 0 && (
         <p className="mt-6 text-sm text-slate-500">
