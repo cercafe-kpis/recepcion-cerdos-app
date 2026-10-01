@@ -554,6 +554,25 @@ export async function buscarRecepcionesPorConsecutivo(consecutivo: string): Prom
 }
 
 /**
+ * Trae el estado MÁS FRESCO de una Recepción puntual por su spId — a diferencia de
+ * listarRecepcionesEnProceso()/listarRecepcionesPorRangoFecha()/buscarRecepcionesPorConsecutivo()
+ * (pensadas para TRAER una Recepción que este dispositivo todavía no tiene en Dexie), esta es para
+ * REFRESCAR una que ya existe localmente (ver actualizar() en Consolidado.tsx, botón "Actualizar
+ * desde SharePoint") — a pedido de Nathalia (2026-10-01), después de que corrigiera a mano en
+ * SharePoint la FechaRecepcion de un lote y la app le siguiera mostrando la fecha vieja: ni
+ * buscarPorFecha()/buscarPorConsecutivo() en Consolidado.tsx ni descargarRecepcionesEnProceso() en
+ * syncService.ts vuelven a pisar un registro que ya está en Dexie con nada que no sean un puñado de
+ * campos puntuales (y solo mientras el lote siga "En proceso" en SharePoint) — así que una edición
+ * manual directamente en SharePoint a cualquier otro campo (o a cualquier campo de un lote que ya
+ * quedara "Completo") se queda invisible para siempre en los dispositivos que ya la tuvieran
+ * descargada, hasta que alguien use esto.
+ */
+export async function obtenerRecepcionActual(recepcionSpId: string): Promise<Recepcion> {
+  const item = await getItem<Record<string, unknown>>('Recepciones', recepcionSpId)
+  return mapFieldsARecepcion(item)
+}
+
+/**
  * AsociadoId, GranjaId y PlacaVehiculoId son columnas de tipo Lookup en
  * SharePoint (ver Arquitectura-App-Recepcion-Cerdos.md sección 4): Graph solo
  * las acepta bajo el nombre `<Columna>LookupId` y con el id NUMÉRICO del
