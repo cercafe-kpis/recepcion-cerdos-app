@@ -71,16 +71,18 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [novedadCorral, setNovedadCorral] = useState<NovedadCorral>()
   const esAdmin = usuario.Rol === 'Administrador'
   // Panel "Consecutivos repetidos" más abajo: a diferencia de "Editar Consecutivo/Número de orden"
-  // (siempre solo Administrador, porque esa edita una Recepción YA sincronizada — información que ya
-  // salió a producción), esto corrige o descarta una captura que TODAVÍA no llegó a SharePoint y que
-  // la propia persona capturó — a pedido de Nathalia (2026-09-29), para que quien audita no dependa
-  // de un Administrador cada vez que le pasa esto. Abierto a cualquiera que pueda capturar
-  // (Administrador/Supervisor/Auditor); solo Consultor, de solo lectura, se queda sin verlo.
+  // (candado `soloLectura`, igual que Granja — ver más abajo), esto corrige o descarta una captura
+  // que TODAVÍA no llegó a SharePoint y que la propia persona capturó — a pedido de Nathalia
+  // (2026-09-29), para que quien audita no dependa de un Administrador cada vez que le pasa esto.
+  // Abierto a cualquiera que pueda capturar (Administrador/Supervisor/Auditor); solo Consultor, de
+  // solo lectura, se queda sin verlo. No usa `soloLectura` porque un conflicto no está ligado a un
+  // lote "Completo"/"En proceso" — el registro ni siquiera llegó a SharePoint.
   const puedeResolverConflictos = usuario.Rol !== 'Consultor'
 
   // Edición de Consecutivo/Número de orden (2026-09-26, a pedido de Nathalia) — ver el botón
   // "Editar" más abajo y actualizarConsecutivoYOrden() en graph/lists.ts. Solo estos 2 campos: el
-  // resto de la Recepción sigue sin poder tocarse una vez capturada.
+  // resto de la Recepción sigue sin poder tocarse una vez capturada. Candado: ver el comentario
+  // junto al botón, más abajo (usa `soloLectura`, igual que Granja, desde 2026-10-01).
   const [editandoConsecutivo, setEditandoConsecutivo] = useState(false)
   const [nuevoConsecutivo, setNuevoConsecutivo] = useState('')
   const [nuevoNumeroOrden, setNuevoNumeroOrden] = useState('')
@@ -89,18 +91,18 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   // Eliminar novedad (2026-09-24, a pedido de Nathalia) — ver eliminarFila() más abajo.
   const [eliminandoId, setEliminandoId] = useState<string>()
 
-  // Editar Granja (2026-09-24, a pedido de Nathalia): a diferencia de Consecutivo/Número de orden
-  // (candado siempre admin-only, ver más abajo), este usa el mismo candado `soloLectura` que el
-  // resto de la pantalla — cualquiera que no sea Consultor puede corregirla mientras el lote siga
-  // "En proceso", y solo un Administrador una vez que quede "Completo". Ver guardarGranja() y
-  // actualizarGranja() en graph/lists.ts.
+  // Editar Granja (2026-09-24, a pedido de Nathalia): usa el candado `soloLectura` del resto de la
+  // pantalla — cualquiera que no sea Consultor puede corregirla mientras el lote siga "En proceso",
+  // y solo un Administrador una vez que quede "Completo". Ver guardarGranja() y actualizarGranja()
+  // en graph/lists.ts. (Desde 2026-10-01, Consecutivo/Número de orden arriba usa el mismo candado.)
   const [editandoGranja, setEditandoGranja] = useState(false)
   const [nuevaGranjaId, setNuevaGranjaId] = useState('')
   const [guardandoGranja, setGuardandoGranja] = useState(false)
 
-  // Editar horas (2026-09-28, a pedido de Nathalia) — mismo candado que Consecutivo/Número de
-  // orden arriba: solo Administrador, en cualquier momento (no usa `soloLectura` como Granja). Ver
-  // empezarEdicionHoras()/guardarHoras() más abajo y actualizarHorasDeRecepcion() en graph/lists.ts.
+  // Editar horas (2026-09-28, a pedido de Nathalia) — candado: siempre Administrador, en
+  // cualquier momento, sin usar `soloLectura` (a diferencia de Granja y, desde 2026-10-01, también
+  // Consecutivo/Número de orden). Ver empezarEdicionHoras()/guardarHoras() más abajo y
+  // actualizarHorasDeRecepcion() en graph/lists.ts.
   const [editandoHoras, setEditandoHoras] = useState(false)
   const [nuevaHoraProgramada, setNuevaHoraProgramada] = useState('')
   const [nuevaHoraLlegadaVehiculo, setNuevaHoraLlegadaVehiculo] = useState('')
@@ -110,8 +112,9 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
 
   // Panel "Consecutivos repetidos" (2026-09-29, a pedido de Nathalia — primer caso real de este
   // conflicto en producción): antes la app solo avisaba cuántos había (badge en Navbar.tsx), sin
-  // ninguna pantalla para resolverlos. Solo Administrador, igual que Consecutivo/Número de orden
-  // normal. Ver corregirConsecutivoConflicto()/descartarRecepcionConflicto() en syncService.ts.
+  // ninguna pantalla para resolverlos. Candado: `puedeResolverConflictos` arriba (abierto a
+  // cualquiera que no sea Consultor desde el primer día de este panel, a pedido de Nathalia). Ver
+  // corregirConsecutivoConflicto()/descartarRecepcionConflicto() en syncService.ts.
   const [editandoConflictoId, setEditandoConflictoId] = useState<string>()
   const [consecutivoConflicto, setConsecutivoConflicto] = useState('')
   const [numeroOrdenConflicto, setNumeroOrdenConflicto] = useState('')
@@ -892,11 +895,14 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                 </>
               )}
             </div>
-            {/* Editar Consecutivo/Número de orden — solo Administrador y solo en línea (hace falta
-                Graph para revisar que el Consecutivo nuevo no esté repetido y para guardar el
-                cambio, ver guardarConsecutivo() arriba). El resto de la Recepción sigue sin poder
+            {/* Editar Consecutivo/Número de orden — y solo en línea (hace falta Graph para revisar
+                que el Consecutivo nuevo no esté repetido y para guardar el cambio, ver
+                guardarConsecutivo() arriba). Antes era siempre Administrador; a pedido de Nathalia
+                (2026-10-01) ahora usa el mismo candado `soloLectura` que Granja (justo abajo):
+                cualquiera que no sea Consultor puede corregirlo mientras el lote siga "En proceso",
+                y una vez "Completo" solo un Administrador. El resto de la Recepción sigue sin poder
                 editarse desde aquí. */}
-            {esAdmin && (
+            {!soloLectura && (
               <div className="mt-3 flex items-center gap-3">
                 {editandoConsecutivo ? (
                   <>
@@ -933,9 +939,10 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                 )}
               </div>
             )}
-            {/* Editar horas (2026-09-28, a pedido de Nathalia) — mismo candado que Consecutivo/
-                Número de orden arriba: solo Administrador, en cualquier momento. Ver
-                guardarHoras() y actualizarHorasDeRecepcion() en graph/lists.ts. */}
+            {/* Editar horas (2026-09-28, a pedido de Nathalia) — candado: siempre Administrador, en
+                cualquier momento, sin usar `soloLectura` (a diferencia de Consecutivo/Número de
+                orden arriba, que desde 2026-10-01 sí lo usa). Ver guardarHoras() y
+                actualizarHorasDeRecepcion() en graph/lists.ts. */}
             {esAdmin && (
               <div className="mt-3 flex items-center gap-3">
                 {editandoHoras ? (
