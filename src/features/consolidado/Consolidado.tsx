@@ -21,6 +21,7 @@ import {
   listarRecepcionesPorRangoFecha,
   marcarLoteCompleto,
   obtenerNovedadCorralDeRecepcion,
+  obtenerRecepcionActual,
   reabrirLote,
 } from '../../graph/lists'
 import { esErrorDeSesion } from '../../graph/client'
@@ -221,11 +222,26 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     }
   }, [recepcion?.spId])
 
+  /**
+   * "Actualizar desde SharePoint" (botón más abajo). Antes solo traía de nuevo los tiquetes
+   * (cachearTiquetesDeRecepcion) — a pedido de Nathalia (2026-10-01), después de que corrigiera a
+   * mano en SharePoint la FechaRecepcion de un lote ya capturado y la app le siguiera mostrando la
+   * fecha vieja, también se trae de nuevo la Recepción misma (obtenerRecepcionActual) y se
+   * sobrescribe el registro local completo con lo que haya en SharePoint en este momento. Hacía
+   * falta: ni los buscadores de abajo ni la sincronización automática vuelven a pisar un registro
+   * que ya está en Dexie salvo por un puñado de campos puntuales (y solo si el lote sigue "En
+   * proceso") — ver el comentario grande de obtenerRecepcionActual() en graph/lists.ts. Se excluye
+   * `id` a propósito: es la llave primaria local (un UUID si este dispositivo capturó la Recepción,
+   * no necesariamente igual a su spId) y no debe tocarse al actualizar.
+   */
   async function actualizar() {
     if (!recepcion?.spId) return
     setActualizando(true)
     try {
       await cachearTiquetesDeRecepcion(recepcion.spId)
+      const fresca = await obtenerRecepcionActual(recepcion.spId)
+      const { id: _id, ...campos } = fresca
+      await db.recepciones.update(recepcion.id, campos)
     } finally {
       setActualizando(false)
     }
@@ -1126,7 +1142,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                 type="button"
                 onClick={() => void actualizar()}
                 disabled={actualizando || !navigator.onLine}
-                title="Trae de nuevo desde SharePoint el Tiquete/Destino/Factura/Estado de esta Recepción — útil si otra persona, desde otro celular o computador, le acaba de cambiar algo a uno de estos tiquetes"
+                title="Trae de nuevo desde SharePoint el Tiquete/Destino/Factura/Estado de esta Recepción, y también sus propios datos (fecha, horas, Consecutivo, Granja, etc.) — útil si otra persona le cambió algo desde otro celular o computador, o si tú misma corregiste algo directamente en SharePoint"
                 className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
               >
                 {actualizando ? 'Actualizando…' : 'Actualizar desde SharePoint'}
