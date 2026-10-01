@@ -14,7 +14,17 @@ export const recepcionSchema = z
   .object({
     Consecutivo: z.string().trim().min(1, 'Obligatorio — es el consecutivo que ya manejan en planta'),
     NumeroOrden: z.string().trim().min(1, 'Obligatorio'),
-    FechaRecepcion: z.string().min(1, 'Obligatorio'),
+    // No se puede capturar una Recepción con fecha futura (a pedido de Nathalia, 2026-10-01) — hoy o
+    // cualquier fecha anterior sí, por si se está registrando un lote con algunos días de atraso. La
+    // comparación es por texto ("YYYY-MM-DD" vs "YYYY-MM-DD"), válida porque ambas cadenas tienen
+    // siempre el mismo formato de ancho fijo — el mismo truco que ya usa el resto de la app (ver
+    // hoyISO() en Consolidado.tsx/Ubicacion.tsx/etc.) en vez de comparar objetos Date.
+    FechaRecepcion: z
+      .string()
+      .min(1, 'Obligatorio')
+      .refine((fecha) => fecha <= new Date().toISOString().slice(0, 10), {
+        message: 'No está permitido registrar una fecha posterior a hoy',
+      }),
     HoraProgramada: z.string().min(1, 'Obligatorio'),
     HoraLlegadaVehiculo: z.string().min(1, 'Obligatorio'),
     // Opcionales (revertido a esto 2026-09-11, octava ronda, a pedido de Nathalia) — ver el
