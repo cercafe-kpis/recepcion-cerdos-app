@@ -23,6 +23,13 @@ function combinarFechaHora(fecha: string, hora: string): string {
   return `${fecha}T${hora}:00-05:00`
 }
 
+/** Fecha de hoy en "YYYY-MM-DD", para el tope del campo "Fecha de recepción" (ver más abajo) y el
+ * valor inicial del formulario. El candado real contra una fecha futura vive en recepcionSchema.ts
+ * — esto es solo para que el propio selector nativo de fecha ya la bloquee al elegirla. */
+function hoyISO(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
 /**
  * Fuerza el formato "3 cifras - resto" mientras la persona escribe (ej.
  * "026-445555552"): se queda solo con los dígitos que ya escribió y vuelve a
@@ -57,7 +64,7 @@ function formatearDecimal(valor: string): string {
 const VALORES_INICIALES: RecepcionFormInput = {
   Consecutivo: '',
   NumeroOrden: '',
-  FechaRecepcion: new Date().toISOString().slice(0, 10),
+  FechaRecepcion: hoyISO(),
   HoraProgramada: '',
   HoraLlegadaVehiculo: '',
   HoraInicioDesembarque: '',
@@ -184,7 +191,14 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
         <SeccionFormulario titulo="Identificación del lote">
           <CampoTexto etiqueta="Consecutivo" requerido {...register('Consecutivo')} error={errors.Consecutivo?.message} />
           <CampoTexto etiqueta="Número de orden" requerido {...register('NumeroOrden')} error={errors.NumeroOrden?.message} />
-          <CampoTexto type="date" etiqueta="Fecha de recepción" requerido {...register('FechaRecepcion')} error={errors.FechaRecepcion?.message} />
+          <CampoTexto
+            type="date"
+            etiqueta="Fecha de recepción"
+            requerido
+            max={hoyISO()}
+            {...register('FechaRecepcion')}
+            error={errors.FechaRecepcion?.message}
+          />
           <CampoTexto type="time" etiqueta="Hora programada" requerido {...register('HoraProgramada')} error={errors.HoraProgramada?.message} />
           <CampoTexto type="time" etiqueta="Hora de llegada del vehículo" requerido {...register('HoraLlegadaVehiculo')} error={errors.HoraLlegadaVehiculo?.message} />
           {/* Opcionales (revertido a esto 2026-09-11, octava ronda, a pedido de Nathalia): algunos
