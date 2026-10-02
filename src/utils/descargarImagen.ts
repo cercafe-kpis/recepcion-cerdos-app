@@ -135,6 +135,31 @@ async function esperarListoParaCapturar(elemento: HTMLElement): Promise<void> {
 }
 
 /**
+ * Las tablas anchas de los reportes (Horas en ReporteDiarioLote.tsx, Detalle por lote en
+ * ReporteSemanalAsociado.tsx, la tabla completa de ReporteCierreDiario.tsx) envuelven la tabla en
+ * un `<div>` con overflow-x-auto para poder deslizarla en un celular angosto — eso YA tiene su
+ * propio `overflow-y-visible` explícito al lado (ver el comentario grande en cada uno de esos 3
+ * archivos), pero esto es la red de seguridad general además de eso: por spec CSS, cualquier
+ * elemento cuyo overflow-x NO sea "visible" hace que el navegador convierta SOLO por eso su
+ * overflow-y de "visible" a "auto", aunque nadie haya pedido scroll vertical — y como
+ * dom-to-image-more pinta tal cual lo que el navegador renderiza (serializa el DOM real dentro de
+ * un SVG), esa conversión implícita puede meter una barra de scroll vertical real, como parte de
+ * los píxeles, dentro del PNG/PDF descargado (reportado por Nathalia 2026-10-02 en el "Cierre
+ * diario" — las barras se veían encima de la última columna de la tabla). Se recorre el clon,
+ * UNA VEZ YA MONTADO en el documento (hace falta para que getComputedStyle pueda calcular algo),
+ * y se fuerza `overflow-y: visible` en cualquier elemento donde el navegador la haya cambiado
+ * sola — sin tocar el overflow-x, que sigue haciendo falta para el scroll horizontal real.
+ */
+function neutralizarScrollVerticalImplicito(clon: HTMLElement): void {
+  for (const el of clon.querySelectorAll<HTMLElement>('*')) {
+    const estilo = getComputedStyle(el)
+    if (estilo.overflowX !== 'visible' && estilo.overflowY !== 'visible') {
+      el.style.overflowY = 'visible'
+    }
+  }
+}
+
+/**
  * Arma un clon del reporte fuera de la pantalla (con `position: fixed` y muy a la izquierda, no
  * con `display: none` — eso sí impediría medirlo) metido en un contenedor de ancho fijo. Como el
  * reporte ya trae su propio ancho máximo (max-w-3xl / max-w-4xl de Tailwind) y se centra con
@@ -157,6 +182,7 @@ function crearClonAnchoFijo(elemento: HTMLElement): { clon: HTMLElement; contene
   const clon = elemento.cloneNode(true) as HTMLElement
   contenedor.appendChild(clon)
   document.body.appendChild(contenedor)
+  neutralizarScrollVerticalImplicito(clon)
 
   return { clon, contenedor }
 }
