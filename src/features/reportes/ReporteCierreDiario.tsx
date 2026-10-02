@@ -219,8 +219,19 @@ export function ReporteCierreDiario({
           </div>
 
           {/* Envuelta en overflow-x-auto (10 columnas no caben en un celular angosto) con un min-w
-              fijo — mismo patrón que las demás tablas de reportes en esta app. */}
-          <div className="overflow-x-auto px-5 pb-5">
+              fijo — mismo patrón que las demás tablas de reportes en esta app. overflow-y-visible
+              explícito (2026-10-02, a pedido de Nathalia — la imagen descargada le salía con las
+              barras de scroll dibujadas encima de la tabla): por spec CSS, si overflow-x queda en
+              "auto" y overflow-y se deja en su valor inicial ("visible", lo que pasaba antes de
+              este cambio porque Tailwind overflow-x-auto solo toca el eje X), el navegador cambia
+              SOLO por eso el valor computado de overflow-y de "visible" a "auto" — así nunca se
+              haya pedido scroll vertical. dom-to-image-more pinta esta sección tal cual la ve el
+              navegador, así que si en algún momento el contenido mide un pixel más alto de lo
+              calculado (redondeos de la nitidez con la que se captura, por ejemplo) ese "auto"
+              bastaba para que apareciera la barra vertical metida en el PNG final, encima de la
+              última columna. Fijar overflow-y en "visible" a propósito corta esa conversión
+              automática de raíz, sin tocar el scroll horizontal que sí hace falta en celular. */}
+          <div className="overflow-x-auto overflow-y-visible px-5 pb-5">
             <table className="w-full min-w-[920px] border-collapse text-center text-xs">
               <thead>
                 <tr className="bg-brand-navy text-white">
