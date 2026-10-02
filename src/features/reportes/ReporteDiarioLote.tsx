@@ -264,7 +264,11 @@ export function ReporteDiarioLote({
             obliga a que aparezca ese scroll horizontal en vez de apretar las columnas hasta
             volverlas ilegibles. */}
         <div className="px-5 pt-4">
-          <div className="overflow-x-auto">
+          {/* overflow-y-visible explícito (2026-10-02) — ver el comentario grande de este mismo
+              cambio en ReporteCierreDiario.tsx: sin esto, el navegador convierte por spec el
+              overflow-y "visible" en "auto" apenas overflow-x queda en "auto", y esa conversión es
+              la que podía meter una barra de scroll vertical dentro del PNG/PDF descargado. */}
+          <div className="overflow-x-auto overflow-y-visible">
             <table className="w-full min-w-[640px] border-collapse overflow-hidden rounded-lg text-center text-xs">
               <thead>
                 <tr className="bg-brand-navy text-white">
