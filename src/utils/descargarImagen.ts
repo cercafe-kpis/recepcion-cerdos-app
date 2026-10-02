@@ -135,25 +135,34 @@ async function esperarListoParaCapturar(elemento: HTMLElement): Promise<void> {
 }
 
 /**
- * Las tablas anchas de los reportes (Horas en ReporteDiarioLote.tsx, Detalle por lote en
- * ReporteSemanalAsociado.tsx, la tabla completa de ReporteCierreDiario.tsx) envuelven la tabla en
- * un `<div>` con overflow-x-auto para poder deslizarla en un celular angosto — eso YA tiene su
- * propio `overflow-y-visible` explícito al lado (ver el comentario grande en cada uno de esos 3
- * archivos), pero esto es la red de seguridad general además de eso: por spec CSS, cualquier
- * elemento cuyo overflow-x NO sea "visible" hace que el navegador convierta SOLO por eso su
- * overflow-y de "visible" a "auto", aunque nadie haya pedido scroll vertical — y como
- * dom-to-image-more pinta tal cual lo que el navegador renderiza (serializa el DOM real dentro de
- * un SVG), esa conversión implícita puede meter una barra de scroll vertical real, como parte de
- * los píxeles, dentro del PNG/PDF descargado (reportado por Nathalia 2026-10-02 en el "Cierre
- * diario" — las barras se veían encima de la última columna de la tabla). Se recorre el clon,
- * UNA VEZ YA MONTADO en el documento (hace falta para que getComputedStyle pueda calcular algo),
- * y se fuerza `overflow-y: visible` en cualquier elemento donde el navegador la haya cambiado
- * sola — sin tocar el overflow-x, que sigue haciendo falta para el scroll horizontal real.
+ * CORRECCIÓN (2026-10-02, segunda vuelta) sobre el primer intento de este mismo arreglo: ese
+ * primer intento agregaba `overflow-y-visible` EXPLÍCITO al lado de `overflow-x-auto` en los 3
+ * reportes (ver esa clase todavía puesta en ReporteCierreDiario.tsx/ReporteDiarioLote.tsx/
+ * ReporteSemanalAsociado.tsx) confiando en que así se evitaba que el navegador cambiara el eje Y
+ * a "auto" — pero la regla real de la spec de CSS no distingue entre un "visible" que quedó por
+ * default y uno puesto a propósito: CUALQUIER elemento donde un eje sea "visible" y el otro NO
+ * (overflow-x: auto / overflow-y: visible, en cualquier orden) hace que el navegador cambie el
+ * valor USADO del eje "visible" a "auto" de todas formas — así se haya escrito "visible" con toda
+ * la intención. Por eso Nathalia seguía viendo las barras de scroll horneadas en el PNG incluso
+ * después de confirmar que ya tenía la versión nueva de la app (botón "Actualizar ahora"): el
+ * overflow-y-visible de esos 3 archivos nunca alcanzaba a aplicarse de verdad mientras siguiera al
+ * lado de un overflow-x: auto.
+ *
+ * La única forma real de que un elemento no tenga NINGÚN scroll (ni vertical ni horizontal) es que
+ * los dos ejes queden en "visible" al mismo tiempo — así que, en vez de intentar apagar solo el
+ * eje Y, esto apaga LOS DOS en cualquier elemento del clon donde el navegador haya dejado activo
+ * cualquiera de los dos como scrolleable. Esto es seguro específicamente en este contexto (el clon
+ * que se va a CAPTURAR, nunca el reporte en pantalla): el único motivo por el que esas 3 tablas
+ * piden scroll horizontal en primer lugar es para cuando la pantalla real es angosta (un celular),
+ * y el clon siempre se arma con un ancho fijo de sobra (ANCHO_CAPTURA, más abajo) elegido
+ * justamente para que las 3 quepan enteras sin necesitar ese scroll — apagarlo acá no les quita
+ * ninguna columna, solo evita que el navegador dibuje la barra que ya no hacía falta.
  */
-function neutralizarScrollVerticalImplicito(clon: HTMLElement): void {
+function neutralizarScrollImplicito(clon: HTMLElement): void {
   for (const el of clon.querySelectorAll<HTMLElement>('*')) {
     const estilo = getComputedStyle(el)
-    if (estilo.overflowX !== 'visible' && estilo.overflowY !== 'visible') {
+    if (estilo.overflowX !== 'visible' || estilo.overflowY !== 'visible') {
+      el.style.overflowX = 'visible'
       el.style.overflowY = 'visible'
     }
   }
@@ -182,7 +191,7 @@ function crearClonAnchoFijo(elemento: HTMLElement): { clon: HTMLElement; contene
   const clon = elemento.cloneNode(true) as HTMLElement
   contenedor.appendChild(clon)
   document.body.appendChild(contenedor)
-  neutralizarScrollVerticalImplicito(clon)
+  neutralizarScrollImplicito(clon)
 
   return { clon, contenedor }
 }
