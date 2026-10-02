@@ -450,11 +450,12 @@ export function ReporteSemanalAsociado({
             celular angosto se pueda deslizar en vez de quedar recortada. */}
         <div className="px-5 pb-5">
           <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Detalle por lote</p>
-          {/* overflow-y-visible explícito (2026-10-02) — ver el comentario grande de este mismo
-              cambio en ReporteCierreDiario.tsx: sin esto, el navegador convierte por spec el
-              overflow-y "visible" en "auto" apenas overflow-x queda en "auto", y esa conversión es
-              la que podía meter una barra de scroll vertical dentro del PNG/PDF descargado. */}
-          <div className="overflow-x-auto overflow-y-visible">
+          {/* Este overflow-x-auto es SOLO para la pantalla en celular — al descargar la imagen,
+              neutralizarScrollImplicito() en descargarImagen.ts apaga este scroll por completo en
+              el clon que se captura (ver el comentario grande de esa función: un simple
+              overflow-y-visible al lado de esta clase no alcanza, el navegador lo vuelve a
+              convertir en "auto" de todas formas). */}
+          <div className="overflow-x-auto">
             <div className="min-w-[820px] overflow-hidden rounded-md border border-slate-200 text-center text-xs">
               <div className="flex bg-brand-navy font-semibold text-white">
                 <div className="flex flex-1 items-center justify-center px-1 py-1.5">Fecha</div>
