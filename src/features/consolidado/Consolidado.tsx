@@ -12,6 +12,7 @@ import {
 import {
   actualizarConsecutivoYOrden,
   actualizarGranjaDeRecepcion,
+  actualizarFechaDeRecepcion,
   actualizarHorasDeRecepcion,
   buscarRecepcionesPorConsecutivo,
   decrementarConteoOrigenTiquete,
@@ -110,6 +111,13 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [nuevaHoraInicioDesembarque, setNuevaHoraInicioDesembarque] = useState('')
   const [nuevaHoraFinalDesembarque, setNuevaHoraFinalDesembarque] = useState('')
   const [guardandoHoras, setGuardandoHoras] = useState(false)
+
+  // Editar fecha (2026-10-05, a pedido de Nathalia) — mismo candado que "Editar horas": siempre
+  // Administrador, en cualquier momento, sin usar `soloLectura`. Ver guardarFecha() más abajo y
+  // actualizarFechaDeRecepcion() en graph/lists.ts.
+  const [editandoFecha, setEditandoFecha] = useState(false)
+  const [nuevaFecha, setNuevaFecha] = useState('')
+  const [guardandoFecha, setGuardandoFecha] = useState(false)
 
   // Panel "Consecutivos repetidos" (2026-09-29, a pedido de Nathalia — primer caso real de este
   // conflicto en producción): antes la app solo avisaba cuántos había (badge en Navbar.tsx), sin
@@ -577,6 +585,65 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     }
   }
 
+  function empezarEdicionFecha() {
+    if (!recepcion) return
+    setNuevaFecha(recepcion.FechaRecepcion)
+    setError(undefined)
+    setEditandoFecha(true)
+  }
+
+  /**
+   * Cambia la FechaRecepcion del lote (solo Administrador). Las 4 horas se vuelven a pegar a la
+   * fecha nueva conservando su "HH:MM" — ver el comentario de actualizarFechaDeRecepcion() en
+   * graph/lists.ts sobre por qué. Igual que en Recepcion.tsx, no se permite una fecha posterior a
+   * hoy. Si la fecha nueva no es la de hoy, el lote se agrega a `idsFueraDeHoy` para que no
+   * desaparezca del desplegable de "Recepción" (que por defecto solo lista los de hoy) y siga
+   * seleccionado justo después de guardar.
+   */
+  async function guardarFecha() {
+    if (!recepcion?.spId) return
+    if (!nuevaFecha) {
+      setError('Selecciona una fecha.')
+      return
+    }
+    if (nuevaFecha > hoy) {
+      setError('No está permitido registrar una fecha posterior a hoy.')
+      return
+    }
+    if (nuevaFecha === recepcion.FechaRecepcion) {
+      setEditandoFecha(false)
+      return
+    }
+    setGuardandoFecha(true)
+    setError(undefined)
+    try {
+      const recombinar = (iso: string | undefined) =>
+        iso && horaCorta(iso) ? combinarFechaHora(nuevaFecha, horaCorta(iso)) : undefined
+      const horas = {
+        HoraProgramada: recombinar(recepcion.HoraProgramada),
+        HoraLlegadaVehiculo: recombinar(recepcion.HoraLlegadaVehiculo),
+        HoraInicioDesembarque: recombinar(recepcion.HoraInicioDesembarque),
+        HoraFinalDesembarque: recombinar(recepcion.HoraFinalDesembarque),
+      }
+      const cambios = {
+        FechaRecepcion: nuevaFecha,
+        Title: `${recepcion.Consecutivo} · ${nuevaFecha}`,
+        // Solo las horas que el lote ya tenía: una opcional vacía no se manda (ni se borra nada).
+        ...Object.fromEntries(Object.entries(horas).filter(([, v]) => v !== undefined)),
+      }
+      await actualizarFechaDeRecepcion(recepcion.spId, cambios)
+      await db.recepciones.update(recepcion.id, cambios)
+      if (nuevaFecha !== hoy) {
+        setIdsFueraDeHoy((previos) => (previos.includes(recepcion.id) ? previos : [...previos, recepcion.id]))
+      }
+      setEditandoFecha(false)
+    } catch (err) {
+      setError(`No se pudo guardar el cambio: ${(err as Error).message}`)
+    } finally {
+      setGuardandoFecha(false)
+    }
+  }
+
   async function guardarCambio(t: ConsolidadoTiquete, cambios: Partial<ConsolidadoTiquete>) {
     await guardarEdicionTiqueteLocal(t.id, cambios)
     if (navigator.onLine) {
@@ -867,7 +934,18 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
         <>
           <div className="mt-5 rounded-lg border border-slate-200 bg-white p-4 print:hidden">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Dato etiqueta="Fecha" valor={recepcion.FechaRecepcion} />
+              {editandoFecha ? (
+                <CampoTexto
+                  type="date"
+                  etiqueta="Fecha"
+                  requerido
+                  max={hoy}
+                  value={nuevaFecha}
+                  onChange={(e) => setNuevaFecha(e.target.value)}
+                />
+              ) : (
+                <Dato etiqueta="Fecha" valor={recepcion.FechaRecepcion} />
+              )}
               {editandoGranja ? (
                 <CampoSelect
                   etiqueta="Granja"
@@ -1021,6 +1099,46 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                     className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
                   >
                     Editar horas
+                  </button>
+                )}
+              </div>
+            )}
+            {/* Editar fecha (2026-10-05, a pedido de Nathalia) — candado: siempre Administrador, en
+                cualquier momento, igual que "Editar horas" justo arriba. Ver guardarFecha() y
+                actualizarFechaDeRecepcion() en graph/lists.ts. */}
+            {esAdmin && (
+              <div className="mt-3 flex items-center gap-3">
+                {editandoFecha ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void guardarFecha()}
+                      disabled={guardandoFecha || !navigator.onLine}
+                      className="rounded-md bg-brand-navy px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-navy-hover disabled:opacity-50"
+                    >
+                      {guardandoFecha ? 'Guardando…' : 'Guardar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditandoFecha(false)
+                        setError(undefined)
+                      }}
+                      disabled={guardandoFecha}
+                      className="text-xs font-medium text-slate-500 hover:text-brand-red disabled:opacity-50"
+                    >
+                      Cancelar
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={empezarEdicionFecha}
+                    disabled={!navigator.onLine}
+                    title="Corregir la Fecha de recepción por un error de captura (las horas del lote se pasan a la fecha nueva)"
+                    className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
+                  >
+                    Editar fecha
                   </button>
                 )}
               </div>
