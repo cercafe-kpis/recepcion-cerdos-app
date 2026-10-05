@@ -722,6 +722,35 @@ export async function actualizarHorasDeRecepcion(
   await updateItem('Recepciones', recepcionSpId, cambios)
 }
 
+/**
+ * Corrige la FECHA de una Recepción YA sincronizada — a pedido de Nathalia (2026-10-05), para
+ * cuando un lote se capturó con la fecha equivocada. Candado: solo un Administrador, en cualquier
+ * momento, igual que "Editar horas" (ver el botón "Editar fecha" en Consolidado.tsx).
+ *
+ * Además de FechaRecepcion se reescriben TAMBIÉN el Title (el desplegable de lotes muestra
+ * "Consecutivo · fecha") y las horas que el lote ya tenga: cada hora se guarda como fecha-hora
+ * completa con la fecha de la Recepción pegada (ver combinarFechaHora() en Recepcion.tsx), así que si
+ * solo cambiara FechaRecepcion las horas quedarían apuntando al día viejo — y los tiempos de
+ * espera/desembarque de los reportes se calculan con esas fechas completas. El llamador debe
+ * mandarlas ya recombinadas con la fecha nueva (mismo formato "2026-09-24T08:30:00-05:00"); las
+ * opcionales que el lote no tenga simplemente no se incluyen (no se mandan como null para no
+ * borrar nada). FechaRecepcion se escribe como fecha simple "YYYY-MM-DD", igual que al crear la
+ * Recepción (mapRecepcionAFields() la deja pasar tal cual).
+ */
+export async function actualizarFechaDeRecepcion(
+  recepcionSpId: string,
+  cambios: {
+    FechaRecepcion: string
+    Title: string
+    HoraProgramada?: string
+    HoraLlegadaVehiculo?: string
+    HoraInicioDesembarque?: string
+    HoraFinalDesembarque?: string
+  },
+): Promise<void> {
+  await updateItem('Recepciones', recepcionSpId, cambios)
+}
+
 // NOTA HISTÓRICA (2026-09-11, octava ronda): aquí vivió el bloque de LlegadasPendientes
 // (mapFieldsALlegadaPendiente, listarLlegadasPendientesPorFecha, crearLlegadaPendiente,
 // buscarLlegadaPendientePorConsecutivo) — ver el comentario grande de `LlegadaPendiente` en
