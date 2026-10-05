@@ -1806,6 +1806,52 @@ cortaba nada, el navegador lo volvía a convertir en "auto" igual**:
   Nathalia en el dispositivo real (2026-10-02): la imagen del Cierre diario ya descarga sin las
   barras de scroll.**
 
+## Sesión del 2026-10-02 (quinta ronda) — Instructivo de uso para el SIG
+- Nathalia pidió un instructivo/manual de uso de la app para codificarlo en el Sistema Integrado de
+  Gestión (SIG) de la empresa. Decisiones acordadas con ella (vía preguntas de aclaración):
+  usar la estructura típica de un SIG (objetivo, alcance, definiciones, responsables, desarrollo,
+  control de cambios — sin plantilla propia todavía, para que la empresa le ponga después su
+  encabezado/código oficial); cubrir TODOS los roles y TODAS las pantallas (no solo un rol); las
+  capturas de pantalla reales las envía ella (no se intentó entrar a la app en vivo para tomarlas);
+  entregable en Word (.docx).
+- Para armar el contenido se releyó a fondo el código de las pantallas (`Recepcion.tsx`,
+  `Consolidado.tsx`, `Ubicacion.tsx`, `NovedadesCorral.tsx`, `Navbar.tsx`, `PantallaLogin.tsx`,
+  `Inicio.tsx`, `ProtegidoPorRol.tsx`, `useCurrentUser.ts`, `models.ts`, los 3 componentes de
+  Reporte y los 6 tabs de Catálogos) para que cada campo, botón, mensaje y regla de permisos del
+  instructivo sea el real de la app y no una aproximación.
+- Entregable: `Instructivo-Recepcion-de-Cerdos.docx` (generado con la librería `docx` de Node,
+  script en `index.js` + `generar-docx*.js` + `build-manual.js`), 17 páginas, con tabla de control
+  de cambios, tabla de contenido (campo de Word — se actualiza al abrir el documento y refrescar
+  campos), matriz de roles y permisos, y un marcador `[CAPTURA DE PANTALLA: ...]` en cada punto
+  donde debe insertarse una captura real una vez Nathalia las envíe. Verificado renderizando el
+  .docx a PDF/imágenes con LibreOffice + pdftoppm antes de entregarlo.
+- Pendiente: Nathalia debe enviar las capturas de pantalla reales de cada módulo para reemplazar
+  los marcadores, y el equipo del SIG debe asignarle código, versión oficial y firmas de revisión/
+  aprobación en la tabla de la portada (hoy quedan como "[a asignar]").
+
+## Sesión del 2026-10-05 — "Editar fecha" en Consolidado (solo Administrador)
+- Nathalia pidió poder modificar la Fecha de recepción de un lote desde Consolidado, solo para el
+  perfil Administrador (hasta hoy la fecha era de solo lectura; corregirla exigía hacerlo a mano en
+  SharePoint).
+- Nuevo botón "Editar fecha" junto a "Editar horas" (mismo candado: `esAdmin`, en cualquier momento,
+  sin usar `soloLectura`; solo en línea). Al editar, el campo Fecha pasa a `<input type="date">` con
+  tope en hoy; no se permite una fecha posterior a hoy (mismo mensaje que Recepcion.tsx).
+- Nueva `actualizarFechaDeRecepcion()` en `graph/lists.ts`: escribe `FechaRecepcion` (fecha simple
+  "YYYY-MM-DD", como al crear), el `Title` ("Consecutivo · fecha", lo que muestra el desplegable de
+  lotes) y las horas que el lote ya tenga, RE-PEGADAS a la fecha nueva conservando su "HH:MM" —
+  cada hora se guarda como fecha-hora completa (ver `combinarFechaHora()`), y si solo cambiara la
+  fecha las horas quedarían apuntando al día viejo y los tiempos de espera/desembarque de los
+  reportes saldrían mal. Las horas opcionales vacías no se mandan (no se borra nada).
+- `guardarFecha()` en `Consolidado.tsx` también actualiza Dexie y, si la fecha nueva no es hoy,
+  agrega el lote a `idsFueraDeHoy` para que no desaparezca del desplegable (que por defecto solo
+  muestra los de hoy) ni se des-seleccione justo después de guardar.
+- 2 archivos en este cambio — deben subirse juntos: `src/features/consolidado/Consolidado.tsx` y
+  `src/graph/lists.ts`. No requiere ningún paso manual en SharePoint.
+- Otros dispositivos que ya tengan el lote en caché local verán la fecha nueva con "Actualizar desde
+  SharePoint" (o solo si el lote sigue "En proceso", por la autocorrección de
+  `descargarRecepcionesEnProceso()`).
+- Verificado con `tsc -b --noEmit`, `oxlint` (solo advertencias que ya existían) y `npm run build`.
+
 ## Pendiente / a definir con el equipo
 - **Sin diagnosticar todavía**: lotes capturados el 2026-09-28 en un computador distinto al de
   Nathalia no llegaron a aparecer ni en SharePoint ni en los reportes — descartado que fuera por los
