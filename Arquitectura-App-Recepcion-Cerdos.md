@@ -1,5 +1,6 @@
 # Arquitectura de datos — App Recepción de Cerdos
 
+
 Diseño técnico (DBA) para la app de captura de datos al ingreso de cerdos a la planta de beneficio de CercafeIA.
 
 ## Plataforma acordada (actualizada 2026-09-01 — reemplaza la decisión de Power Apps)
