@@ -974,95 +974,222 @@ export async function eliminarTiquete(id: string): Promise<void> {
 }
 
 /**
- * A qué campo de conteo hay que restarle 1 cuando se elimina una fila de ConsolidadoTiquetes con
- * esta novedad — el mismo mapeo (a la inversa) que usan generarTiquetesFaltantes()/
- * generarTiquetesNovedadCorral() para CREARLAS a partir de esos mismos campos. Devuelve `undefined`
- * para cualquier combinación que esas 2 funciones no generen (no debería pasar en la práctica).
+ * De dónde sale el conteo que generó un tiquete, y qué otros campos de ese mismo origen hay que
+ * mantener consistentes cuando se elimina el tiquete — el mismo mapeo (a la inversa) que usan
+ * generarTiquetesFaltantes()/generarTiquetesNovedadCorral() para CREAR las filas.
  *
- * 'recepcion': el conteo vive en un ÚNICO registro de Recepción — sin ambigüedad posible.
- * 'novedadCorral': el conteo vive en NovedadesCorral, donde SÍ puede haber más de un registro por
- * lote (ver el comentario grande de obtenerNovedadCorralDeRecepcion() más arriba) — resuelto en
+ * - `campo`: el conteo que genera tiquetes (para Lesionado/Caído/Agitado es el de BENEFICIO DE
+ *   EMERGENCIA; para Fortuito es la única cantidad que existe).
+ * - `campoTotal`: SOLO Lesionado/Caído/Agitado — el total reportado (incluye a los que se
+ *   recuperaron y no llevan tiquete). Es el que SUMAN los reportes (ReporteDiarioLote,
+ *   ReporteSemanalAsociado), no el de beneficio de emergencia. Un tiquete eliminado es un animal
+ *   que NO debió contarse, así que sale de los dos conteos; si solo saliera del de beneficio, el
+ *   reporte seguiría mostrando ese animal de más (error confirmado 2026-10-08 con el lote 12635:
+ *   se borraron 10 tiquetes y el reporte semanal siguió mostrando 5 agitados y 5 caídos de más).
+ * - `indicadorTotal` / `indicadorBenef`: los checkbox "Sí/No" de cada conteo. El formulario no deja
+ *   guardar un indicador en Sí con cantidad 0 (ver novedadCorralSchema.ts), así que si el conteo
+ *   llega a 0 el indicador se pasa a No para no dejar un dato que el propio formulario rechazaría.
+ *
+ * 'recepcion': los conteos viven en un ÚNICO registro de Recepción — sin ambigüedad posible.
+ * 'novedadCorral': viven en NovedadesCorral, donde SÍ puede haber más de un registro por lote (ver
+ * el comentario grande de obtenerNovedadCorralDeRecepcion() más arriba) — se resuelve en
  * decrementarConteoOrigenTiquete() de aquí abajo.
+ *
+ * Devuelve `undefined` para cualquier combinación que esas 2 funciones no generen.
  */
+interface OrigenConteoTiquete {
+  tipo: 'recepcion' | 'novedadCorral'
+  campo: string
+  campoTotal?: string
+  indicadorTotal?: string
+  indicadorBenef?: string
+}
+
 function origenConteoDeTiquete(
   tiquete: Pick<ConsolidadoTiquete, 'GrupoNovedad' | 'TipoNovedad'>,
-):
-  | { tipo: 'recepcion'; campo: 'NovLlegadaCantLesionadosBeneficioEmergencia' | 'NovLlegadaCantCaidosBeneficioEmergencia' | 'NovLlegadaCantAgitadosBeneficioEmergencia' | 'FortuitoCantMuertoTransporte' | 'FortuitoCantMuertoDesembarque' }
-  | { tipo: 'novedadCorral'; campo: 'CantMuertoReposo' | 'CorralCantLesionadosBenefEmerg' | 'CorralCantCaidosBenefEmerg' | 'CorralCantAgitadosBenefEmerg' }
-  | undefined {
+): OrigenConteoTiquete | undefined {
   const { GrupoNovedad, TipoNovedad } = tiquete
   if (GrupoNovedad === 'Novedad de llegada') {
-    if (TipoNovedad === 'Lesionado') return { tipo: 'recepcion', campo: 'NovLlegadaCantLesionadosBeneficioEmergencia' }
-    if (TipoNovedad === 'Caído') return { tipo: 'recepcion', campo: 'NovLlegadaCantCaidosBeneficioEmergencia' }
-    if (TipoNovedad === 'Agitado') return { tipo: 'recepcion', campo: 'NovLlegadaCantAgitadosBeneficioEmergencia' }
+    if (TipoNovedad === 'Lesionado') {
+      return {
+        tipo: 'recepcion',
+        campo: 'NovLlegadaCantLesionadosBeneficioEmergencia',
+        campoTotal: 'NovLlegadaCantLesionados',
+        indicadorTotal: 'NovLlegadaLesionados',
+        indicadorBenef: 'NovLlegadaLesionadosBeneficioEmergencia',
+      }
+    }
+    if (TipoNovedad === 'Caído') {
+      return {
+        tipo: 'recepcion',
+        campo: 'NovLlegadaCantCaidosBeneficioEmergencia',
+        campoTotal: 'NovLlegadaCantCaidos',
+        indicadorTotal: 'NovLlegadaCaidos',
+        indicadorBenef: 'NovLlegadaCaidosBeneficioEmergencia',
+      }
+    }
+    if (TipoNovedad === 'Agitado') {
+      return {
+        tipo: 'recepcion',
+        campo: 'NovLlegadaCantAgitadosBeneficioEmergencia',
+        campoTotal: 'NovLlegadaCantAgitados',
+        indicadorTotal: 'NovLlegadaAgitados',
+        indicadorBenef: 'NovLlegadaAgitadosBeneficioEmergencia',
+      }
+    }
   }
   if (GrupoNovedad === 'Fortuito') {
-    if (TipoNovedad === 'Muerto en Transporte') return { tipo: 'recepcion', campo: 'FortuitoCantMuertoTransporte' }
-    if (TipoNovedad === 'Muerto en Desembarque') return { tipo: 'recepcion', campo: 'FortuitoCantMuertoDesembarque' }
-    if (TipoNovedad === 'Muerto en Reposo') return { tipo: 'novedadCorral', campo: 'CantMuertoReposo' }
+    if (TipoNovedad === 'Muerto en Transporte') {
+      return { tipo: 'recepcion', campo: 'FortuitoCantMuertoTransporte', indicadorTotal: 'FortuitoMuertoTransporte' }
+    }
+    if (TipoNovedad === 'Muerto en Desembarque') {
+      return { tipo: 'recepcion', campo: 'FortuitoCantMuertoDesembarque', indicadorTotal: 'FortuitoMuertoDesembarque' }
+    }
+    if (TipoNovedad === 'Muerto en Reposo') {
+      return { tipo: 'novedadCorral', campo: 'CantMuertoReposo', indicadorTotal: 'MuertoReposo' }
+    }
   }
   if (GrupoNovedad === 'Novedad en corral') {
-    if (TipoNovedad === 'Lesionado') return { tipo: 'novedadCorral', campo: 'CorralCantLesionadosBenefEmerg' }
-    if (TipoNovedad === 'Caído') return { tipo: 'novedadCorral', campo: 'CorralCantCaidosBenefEmerg' }
-    if (TipoNovedad === 'Agitado') return { tipo: 'novedadCorral', campo: 'CorralCantAgitadosBenefEmerg' }
+    if (TipoNovedad === 'Lesionado') {
+      return {
+        tipo: 'novedadCorral',
+        campo: 'CorralCantLesionadosBenefEmerg',
+        campoTotal: 'CorralCantLesionados',
+        indicadorTotal: 'CorralLesionados',
+        indicadorBenef: 'CorralLesionadosBenefEmerg',
+      }
+    }
+    if (TipoNovedad === 'Caído') {
+      return {
+        tipo: 'novedadCorral',
+        campo: 'CorralCantCaidosBenefEmerg',
+        campoTotal: 'CorralCantCaidos',
+        indicadorTotal: 'CorralCaidos',
+        indicadorBenef: 'CorralCaidosBenefEmerg',
+      }
+    }
+    if (TipoNovedad === 'Agitado') {
+      return {
+        tipo: 'novedadCorral',
+        campo: 'CorralCantAgitadosBenefEmerg',
+        campoTotal: 'CorralCantAgitados',
+        indicadorTotal: 'CorralAgitados',
+        indicadorBenef: 'CorralAgitadosBenefEmerg',
+      }
+    }
   }
   return undefined
 }
 
 /**
- * Resta 1 del conteo de origen que generó una fila de ConsolidadoTiquetes que se va a eliminar — a
- * pedido de Nathalia (2026-09-24): antes, "Eliminar" solo borraba la fila y dejaba el conteo de
- * Recepción/NovedadCorral desactualizado (con el riesgo de que "Volver a generar tiquetes" la
- * volviera a crear más adelante). Debe llamarse ANTES de eliminarTiquete() — ver eliminarFila() en
- * Consolidado.tsx.
+ * Qué hizo decrementarConteoOrigenTiquete():
+ * - 'descontado': restó 1 del conteo de origen (y del total reportado, si aplica).
+ * - 'sobrante': el tiquete era UN SOBRANTE — había más tiquetes de ese grupo y tipo que animales
+ *   en el conteo de origen (por ejemplo, copias generadas por dos sincronizaciones simultáneas, ver
+ *   la sesión 2026-10-08 del documento de arquitectura). El conteo de origen ya estaba bien, así
+ *   que NO se toca: borrar la fila basta.
+ * - 'sin-conteo': no había nada que restar (conteo ya en 0, o combinación sin conteo de origen).
  *
- * - Novedad de llegada (Lesionado/Caído/Agitado) y Fortuito Muerto en Transporte/Desembarque: el
- *   conteo vive en un único campo de Recepción, así que se lee el valor actual y se le resta 1 sin
- *   ambigüedad. Estos 3 primeros son de los que SharePoint trunca a 32 caracteres su nombre interno
- *   (ver NOMBRE_SP_BENEFICIO_EMERGENCIA arriba) — por eso se lee/escribe con mapFieldsARecepcion()/
- *   nombreRealDeCampoRecepcion() en vez de a mano.
- * - Fortuito Muerto en Reposo y Novedad en corral (Lesionado/Caído/Agitado): el conteo vive en
- *   NovedadesCorral, donde puede haber más de un registro para el mismo lote (un lote se puede
- *   capturar en más de un envío). Cuando hay más de un registro con ese campo en más de 0, se resta
- *   del más reciente (por CapturadaEn) — decisión explícita de Nathalia (2026-09-24): es una
- *   suposición (podría no ser el registro exacto que tenía el error de más), pero es la más simple
- *   de automatizar sin pedirle a la persona que elija.
+ * `cambiosRecepcion`: lo que cambió en la Recepción (con los nombres del modelo, no los de
+ * SharePoint) para que quien llama lo copie también a Dexie — si no, el botón "Volver a generar
+ * tiquetes" leería la Recepción local desactualizada y volvería a crear el tiquete recién borrado.
+ */
+export interface ResultadoDecremento {
+  accion: 'descontado' | 'sobrante' | 'sin-conteo'
+  cambiosRecepcion?: Partial<Recepcion>
+}
+
+/**
+ * Ajusta el conteo de origen que generó una fila de ConsolidadoTiquetes que se va a eliminar — a
+ * pedido de Nathalia (2026-09-24), y corregida el 2026-10-08. Debe llamarse ANTES de
+ * eliminarTiquete() — ver eliminarFila() en Consolidado.tsx.
  *
- * Si no encuentra dónde restar (el conteo ya está en 0, o ninguna NovedadCorral tiene ese campo en
- * más de 0), no lanza error — sigue de largo sin tocar nada; quien llama de todas formas elimina la
- * fila, y si el conteo de verdad seguía mal habría que corregirlo a mano en SharePoint.
+ * Qué se ajusta (la versión original solo restaba el conteo de beneficio de emergencia, y los
+ * reportes —que suman el TOTAL reportado— seguían mostrando el animal eliminado):
+ * - Lesionado/Caído/Agitado (de llegada o de corral): se resta 1 del conteo de beneficio de
+ *   emergencia Y 1 del total reportado, y los indicadores Sí/No pasan a No si su conteo llega a 0.
+ * - Fortuito (Transporte/Desembarque/Reposo): se resta 1 de la única cantidad que existe.
+ *
+ * Cuándo NO se ajusta nada: si hay MÁS tiquetes de ese grupo y tipo que animales en el conteo de
+ * origen, el tiquete es un sobrante (ver ResultadoDecremento) y solo se borra la fila. Sin esta
+ * regla, limpiar a mano los duplicados que dejó la carrera de sincronizaciones dejaba el conteo
+ * correcto en 0 (lote 87, 2026-10-08).
+ *
+ * Dónde se resta:
+ * - Recepción: un único registro — se lee el valor actual y se le resta 1, sin ambigüedad.
+ *   Algunos nombres internos de SharePoint están truncados a 32 caracteres (ver
+ *   NOMBRE_SP_BENEFICIO_EMERGENCIA arriba) — por eso se escribe con ese mapeo.
+ * - Novedad en corral y Muerto en Reposo: el conteo vive en NovedadesCorral, donde puede haber más
+ *   de un registro para el mismo lote (un lote se puede capturar en más de un envío). Se resta del
+ *   más reciente (por CapturadaEn) que tenga ese conteo en más de 0 — decisión explícita de
+ *   Nathalia (2026-09-24): es una suposición (podría no ser el registro exacto que tenía el error
+ *   de más), pero es la más simple de automatizar sin pedirle a la persona que elija. El total
+ *   reportado se resta de ESE MISMO registro, para que los dos conteos de un envío no se separen.
+ *
+ * Si no encuentra dónde restar no lanza error — quien llama de todas formas elimina la fila, y si
+ * el conteo de verdad seguía mal habría que corregirlo a mano en SharePoint.
  */
 export async function decrementarConteoOrigenTiquete(
   tiquete: Pick<ConsolidadoTiquete, 'GrupoNovedad' | 'TipoNovedad'>,
   recepcionSpId: string,
-): Promise<void> {
+): Promise<ResultadoDecremento> {
   const origen = origenConteoDeTiquete(tiquete)
-  if (!origen) return
+  if (!origen) return { accion: 'sin-conteo' }
+
+  const existentes = await listarTiquetesDeRecepcion(recepcionSpId)
+  const tiquetesDelTipo = existentes.filter(
+    (t) => t.GrupoNovedad === tiquete.GrupoNovedad && t.TipoNovedad === tiquete.TipoNovedad,
+  ).length
+
+  /** Arma lo que hay que escribir (nombres del modelo) a partir de los valores actuales. */
+  function calcularCambios(valores: Record<string, unknown>): Record<string, number | boolean> {
+    const cambios: Record<string, number | boolean> = {}
+    const nuevoConteo = Math.max(0, Number(valores[origen!.campo] ?? 0) - 1)
+    cambios[origen!.campo] = nuevoConteo
+    if (origen!.campoTotal) {
+      const nuevoTotal = Math.max(0, Number(valores[origen!.campoTotal] ?? 0) - 1)
+      cambios[origen!.campoTotal] = nuevoTotal
+      if (nuevoTotal === 0 && origen!.indicadorTotal) cambios[origen!.indicadorTotal] = false
+      if (nuevoConteo === 0 && origen!.indicadorBenef) cambios[origen!.indicadorBenef] = false
+    } else if (nuevoConteo === 0 && origen!.indicadorTotal) {
+      cambios[origen!.indicadorTotal] = false
+    }
+    return cambios
+  }
 
   if (origen.tipo === 'recepcion') {
     const item = await getItem<Record<string, unknown>>('Recepciones', recepcionSpId)
     const recepcion = mapFieldsARecepcion(item)
-    const actual = Number(recepcion[origen.campo] ?? 0)
-    if (actual <= 0) return
-    // Solo 3 de estos 5 campos están en NOMBRE_SP_BENEFICIO_EMERGENCIA (los otros 2,
-    // FortuitoCantMuertoTransporte/Desembarque, tienen nombre corto y coinciden tal cual con
-    // SharePoint) — el respaldo `?? origen.campo` cubre esos 2 sin necesitar un segundo mapeo.
-    const nombreReal = (NOMBRE_SP_BENEFICIO_EMERGENCIA as Record<string, string>)[origen.campo] ?? origen.campo
-    await updateItem('Recepciones', recepcionSpId, { [nombreReal]: actual - 1 })
-    return
+    const valores = recepcion as unknown as Record<string, unknown>
+    const actual = Number(valores[origen.campo] ?? 0)
+    if (actual <= 0) return { accion: 'sin-conteo' }
+    if (tiquetesDelTipo > actual) return { accion: 'sobrante' }
+
+    const cambios = calcularCambios(valores)
+    // Solo algunos de estos campos están en NOMBRE_SP_BENEFICIO_EMERGENCIA (los demás tienen
+    // nombre corto y coinciden tal cual con SharePoint) — el respaldo `?? campo` los cubre.
+    const paraSharePoint: Record<string, number | boolean> = {}
+    for (const [campo, valor] of Object.entries(cambios)) {
+      paraSharePoint[(NOMBRE_SP_BENEFICIO_EMERGENCIA as Record<string, string>)[campo] ?? campo] = valor
+    }
+    await updateItem('Recepciones', recepcionSpId, paraSharePoint)
+    return { accion: 'descontado', cambiosRecepcion: cambios as Partial<Recepcion> }
   }
 
   const registros = await listItems<Record<string, unknown>>(
     'NovedadesCorral',
     `$expand=fields&$filter=fields/RecepcionId eq '${recepcionSpId.replace(/'/g, "''")}'`,
   )
+  const sumaDelConteo = registros.reduce((suma, r) => suma + Number(r.fields[origen.campo] ?? 0), 0)
+  if (sumaDelConteo <= 0) return { accion: 'sin-conteo' }
+  if (tiquetesDelTipo > sumaDelConteo) return { accion: 'sobrante' }
   const candidatos = registros
     .filter((r) => Number(r.fields[origen.campo] ?? 0) > 0)
     .sort((a, b) => String(b.fields.CapturadaEn ?? '').localeCompare(String(a.fields.CapturadaEn ?? '')))
   const elegido = candidatos[0]
-  if (!elegido) return
-  const actual = Number(elegido.fields[origen.campo] ?? 0)
-  await updateItem('NovedadesCorral', elegido.id, { [origen.campo]: actual - 1 })
+  if (!elegido) return { accion: 'sin-conteo' }
+  await updateItem('NovedadesCorral', elegido.id, calcularCambios(elegido.fields))
+  return { accion: 'descontado' }
 }
 
 /**
