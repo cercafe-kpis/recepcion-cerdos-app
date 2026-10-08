@@ -671,16 +671,22 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     if (!t.spId || !recepcion?.spId) return
     const confirmar = window.confirm(
       `¿Eliminar esta novedad (${t.GrupoNovedad} · ${t.TipoNovedad} #${t.NumeroAnimalEnLote})?\n\n` +
-        `Esto también resta 1 del conteo de esa novedad en Recepción/Novedades en Corral.\n\n` +
+        `Esto también resta 1 del conteo de esa novedad (total y beneficio de emergencia) en Recepción/Novedades en Corral, ` +
+        `salvo que este tiquete sea un sobrante (hay más tiquetes que animales en el conteo): en ese caso solo se borra la fila.\n\n` +
         `Esta acción no se puede deshacer.`,
     )
     if (!confirmar) return
     setEliminandoId(t.id)
     setError(undefined)
     try {
-      await decrementarConteoOrigenTiquete(t, recepcion.spId)
+      const resultado = await decrementarConteoOrigenTiquete(t, recepcion.spId)
       await eliminarTiquete(t.spId)
       await db.consolidadoTiquetes.delete(t.id)
+      // Copia a Dexie lo que cambió en la Recepción: "Volver a generar tiquetes" usa la Recepción
+      // local, y con el conteo viejo recrearía el tiquete que se acaba de borrar.
+      if (resultado.cambiosRecepcion) {
+        await db.recepciones.update(recepcion.id, resultado.cambiosRecepcion)
+      }
     } catch (err) {
       setError(`No se pudo eliminar la novedad: ${(err as Error).message}`)
     } finally {
