@@ -124,7 +124,48 @@ export interface ResultadoSync {
  * demás. Pensado para llamarse periódicamente cuando `navigator.onLine` es
  * true (ver src/offline/useSyncOnReconnect.ts, pendiente de construir).
  */
-export async function sincronizar(usuarioActual: string): Promise<ResultadoSync> {
+/**
+ * Punto de entrada ÚNICO de la sincronización: garantiza que nunca corran dos sincronizaciones a la
+ * vez en este dispositivo (2026-10-08, a raíz de un caso real: dos copias idénticas de la misma
+ * Novedad en Corral del lote 87 en SharePoint — mismo `CapturadaEn`, `RecibidaEn` y `Created` hasta
+ * el segundo, y 5 tiquetes de más que alguien tuvo que borrar con "Eliminar").
+ *
+ * Causa: sincronizar() la dispara MUCHO más de un sitio — el propio "Guardar" de cada formulario,
+ * el temporizador y el regreso a la pestaña (App.tsx), el botón de la barra superior, Consolidado —
+ * y antes nada impedía que dos corridas coincidieran. Ambas leían la misma captura como
+ * "Pendiente" (la primera todavía no alcanzaba a marcarla "Sincronizada"), ambas la subían, y
+ * además ambas generaban sus tiquetes al mismo tiempo, cada una sin ver los de la otra.
+ *
+ * Cómo se evita:
+ *  1. Cola dentro de la pestaña: cada corrida espera a que termine la anterior, y recién ahí lee
+ *     lo pendiente — así ya ve las capturas marcadas "Sincronizada" por la corrida anterior.
+ *  2. Si ya hay una corrida ESPERANDO su turno (no ha empezado), las demás llamadas reutilizan esa
+ *     misma — leerá todo lo pendiente cuando le toque, así que no hace falta apilar más.
+ *  3. Candado entre pestañas (Web Locks): si la app está abierta en dos pestañas del mismo
+ *     navegador (comparten la misma base local Dexie), también se turnan. Si el navegador no
+ *     soporta Web Locks, queda solo la cola del punto 1.
+ */
+let colaDeSincronizacion: Promise<unknown> = Promise.resolve()
+let corridaEnEspera: Promise<ResultadoSync> | undefined
+
+function conCandadoEntrePestanas<T>(tarea: () => Promise<T>): Promise<T> {
+  const locks = (navigator as Navigator & { locks?: { request: (nombre: string, cb: () => Promise<T>) => Promise<T> } }).locks
+  if (!locks) return tarea()
+  return locks.request('recepcion-cerdos-sincronizar', tarea)
+}
+
+export function sincronizar(usuarioActual: string): Promise<ResultadoSync> {
+  if (corridaEnEspera) return corridaEnEspera
+  const turno = colaDeSincronizacion.then(() => {
+    corridaEnEspera = undefined // ya le tocó: una llamada nueva debe encolar otra corrida detrás
+    return conCandadoEntrePestanas(() => sincronizarUnaVez(usuarioActual))
+  })
+  corridaEnEspera = turno
+  colaDeSincronizacion = turno.catch(() => undefined)
+  return turno
+}
+
+async function sincronizarUnaVez(usuarioActual: string): Promise<ResultadoSync> {
   const resultado: ResultadoSync = {
     recepcionesSubidas: 0,
     ubicacionesSubidas: 0,
@@ -165,11 +206,26 @@ export async function sincronizar(usuarioActual: string): Promise<ResultadoSync>
   return resultado
 }
 
+/**
+ * Segunda red de seguridad contra subir dos veces la misma captura (la primera es la cola de
+ * sincronizar(), arriba): justo antes de mandarla a SharePoint se vuelve a leer su estado actual en
+ * Dexie — la lista `pendientes` se leyó al empezar la corrida y pudo haber cambiado mientras tanto.
+ * Si ya no está "Pendiente" (otra corrida o pestaña ya la subió), se salta.
+ */
+async function sigueSiendoPendiente(
+  tabla: { get: (id: string) => PromiseLike<{ EstadoSync: string } | undefined> },
+  id: string,
+): Promise<boolean> {
+  const actual = await tabla.get(id)
+  return actual?.EstadoSync === 'Pendiente'
+}
+
 async function sincronizarRecepciones(usuarioActual: string, resultado: ResultadoSync): Promise<void> {
   const pendientes = await db.recepciones.where('EstadoSync').equals('Pendiente').toArray()
 
   for (const rec of pendientes) {
     try {
+      if (!(await sigueSiendoPendiente(db.recepciones, rec.id))) continue
       if (await existeConsecutivo(rec.Consecutivo)) {
         await db.recepciones.update(rec.id, { EstadoSync: 'ConflictoConsecutivo' })
         resultado.conflictosConsecutivo++
@@ -243,6 +299,7 @@ async function sincronizarUbicaciones(resultado: ResultadoSync): Promise<void> {
     try {
       const padre = await db.recepciones.get(ubic.RecepcionId)
       if (!padre?.spId) continue // se reintenta en la próxima corrida, cuando el padre ya tenga spId
+      if (!(await sigueSiendoPendiente(db.ubicaciones, ubic.id))) continue
 
       const { id: _id, spId: _spId, RecibidaEn: _RecibidaEn, ...campos } = ubic
       const { spId, RecibidaEn } = await crearUbicacionEnSharePoint({ ...campos, RecepcionId: padre.spId })
@@ -261,6 +318,7 @@ async function sincronizarNovedadesCorral(resultado: ResultadoSync): Promise<voi
     try {
       const padre = await db.recepciones.get(nov.RecepcionId)
       if (!padre?.spId) continue
+      if (!(await sigueSiendoPendiente(db.novedadesCorral, nov.id))) continue
 
       const { id: _id, spId: _spId, RecibidaEn: _RecibidaEn, ...campos } = nov
       const { spId, RecibidaEn } = await crearNovedadCorralEnSharePoint({ ...campos, RecepcionId: padre.spId })
