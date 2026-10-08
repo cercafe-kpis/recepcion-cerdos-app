@@ -187,6 +187,12 @@ export interface Ubicacion extends CapturaOffline {
 export interface NovedadCorral extends CapturaOffline {
   id: string
   RecepcionId: string
+  /**
+   * Quién guardó esta novedad (el Title del usuario), igual que Recepcion.CapturadoPor — agregado
+   * 2026-10-08 para poder rastrear un duplicado sin adivinar. Opcional: los registros anteriores a
+   * esa fecha no lo tienen. Requiere la columna de texto "CapturadoPor" en la lista NovedadesCorral.
+   */
+  CapturadoPor?: string
   MuertoReposo: boolean
   CantMuertoReposo?: number
   ComportamientoSexual: boolean
