@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useLiveQuery } from 'dexie-react-hooks'
@@ -6,14 +6,37 @@ import { db } from '../../offline/db'
 import { sincronizar } from '../../offline/syncService'
 import {
   buscarRecepcionesPorConsecutivo,
-  existeNovedadCorralDeRecepcion,
+  listarNovedadesCorralDeRecepcion,
   listarRecepcionesPorRangoFecha,
 } from '../../graph/lists'
 import { esErrorDeSesion } from '../../graph/client'
 import { CampoCheckbox, CampoSelect, CampoTexto, SeccionFormulario } from '../../components/CamposFormulario'
 import { BotonConfirmarSesion } from '../../components/BotonConfirmarSesion'
 import { novedadCorralSchema, type NovedadCorralFormInput, type NovedadCorralFormValues } from './novedadCorralSchema'
-import type { NovedadCorral, Usuario } from '../../types/models'
+import { PanelLoteRegistrado } from './PanelLoteRegistrado'
+import { limpiarCantidadesSinMarcar, type ParejaCasillaCantidad } from '../../utils/limpiarCantidades'
+import {
+  combinarRegistros,
+  conteosDeCorral,
+  conteosDeLlegada,
+  conteosNuevosDelFormulario,
+  fraseConteo,
+  lineasDeSuma,
+  sumarConteos,
+  type ResumenNovedadCorral,
+} from '../../utils/resumenNovedades'
+import type { NovedadCorral, Recepcion, Usuario } from '../../types/models'
+
+/** Padres antes que sus hijas — ver limpiarCantidadesSinMarcar(). */
+const PAREJAS_CASILLA_CANTIDAD: ReadonlyArray<ParejaCasillaCantidad> = [
+  ['MuertoReposo', 'CantMuertoReposo'],
+  ['CorralLesionados', 'CorralCantLesionados'],
+  ['CorralLesionadosBenefEmerg', 'CorralCantLesionadosBenefEmerg', 'CorralLesionados'],
+  ['CorralCaidos', 'CorralCantCaidos'],
+  ['CorralCaidosBenefEmerg', 'CorralCantCaidosBenefEmerg', 'CorralCaidos'],
+  ['CorralAgitados', 'CorralCantAgitados'],
+  ['CorralAgitadosBenefEmerg', 'CorralCantAgitadosBenefEmerg', 'CorralAgitados'],
+]
 
 function hoyISO() {
   return new Date().toISOString().slice(0, 10)
@@ -75,6 +98,42 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
     resolver: zodResolver(novedadCorralSchema),
     defaultValues: VALORES_INICIALES,
   })
+
+  // Lo que el lote elegido YA tiene registrado: lo de este dispositivo (Dexie, funciona sin
+  // conexión) más lo que diga SharePoint cuando se pueda consultar — otro dispositivo pudo haber
+  // guardado algo que este nunca vio.
+  const recepcionIdElegida = watch('RecepcionId')
+  const loteElegido = recepciones.find((r) => r.id === recepcionIdElegida)
+  const spIdLote = loteElegido?.spId
+  const [remotas, setRemotas] = useState<{ spId: string; registros: ResumenNovedadCorral[] }>()
+  const [versionConsulta, setVersionConsulta] = useState(0)
+  const localesDelLote =
+    useLiveQuery(
+      () => (recepcionIdElegida ? db.novedadesCorral.where('RecepcionId').equals(recepcionIdElegida).toArray() : []),
+      [recepcionIdElegida],
+    ) ?? []
+
+  useEffect(() => {
+    if (!spIdLote || !navigator.onLine) return
+    let cancelado = false
+    listarNovedadesCorralDeRecepcion(spIdLote)
+      .then((registros) => {
+        if (!cancelado) setRemotas({ spId: spIdLote, registros })
+      })
+      .catch(() => {
+        // Sin respuesta de SharePoint: el panel se queda con lo de este dispositivo y lo avisa.
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [spIdLote, versionConsulta])
+
+  const remotasDelLote = remotas && remotas.spId === spIdLote ? remotas.registros : undefined
+  const { registros: registrosDelLote, completo: registrosCompletos } = combinarRegistros(
+    localesDelLote as unknown as Array<Record<string, unknown> & { id: string; EstadoSync: string; spId?: string }>,
+    remotasDelLote,
+  )
+  const conteosNuevos = conteosNuevosDelFormulario(watch() as unknown as Record<string, unknown>)
 
   /** Igual que buscarPorFecha() en Ubicacion.tsx / Consolidado.tsx. */
   async function buscarPorFecha() {
@@ -141,37 +200,39 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
     }
   }
 
-  async function onSubmit(valores: NovedadCorralFormValues) {
+  async function onSubmit(valoresCrudos: NovedadCorralFormValues) {
     setGuardando(true)
     setMensaje(undefined)
     try {
-      // A pedido de Nathalia (2026-09-21, tras un caso real: dos envíos con "Caídos: 5" para el
-      // mismo lote hicieron que el reporte diario mostrara 10 — ver el comentario grande de
-      // existeNovedadCorralDeRecepcion() en graph/lists.ts). Nada impide capturar Novedades en
-      // Corral más de una vez para la misma Recepción, y el reporte SUMA las cantidades de todos
-      // los envíos a propósito (para el caso legítimo de capturar novedades distintas en envíos
-      // separados, ej. "Muerto en reposo" hoy y "Caído" más tarde) — así que este aviso no
-      // bloquea nada, solo evita el reenvío accidental de la MISMA información: la persona decide
-      // si continúa (novedad distinta) o cancela (fue un error). Solo se puede avisar si la
-      // Recepción ya tiene `spId` (sincronizada) y hay conexión para consultar Graph — si no, se
-      // guarda sin aviso, igual que siempre, para no bloquear nunca la captura offline.
+      // Si alguien marcó una casilla, escribió una cantidad y luego la desmarcó, esa cantidad seguía
+      // guardándose y los reportes la sumaban — ver limpiarCantidadesSinMarcar().
+      const valores = limpiarCantidadesSinMarcar(valoresCrudos, PAREJAS_CASILLA_CANTIDAD)
+
+      // A pedido de Nathalia (2026-10-08): antes de guardar se le dice a la persona, con números,
+      // que esta novedad se SUMA a lo que el lote ya tiene (llegada + envíos de corral anteriores),
+      // porque los usuarios la tomaban por un estado que reemplaza al anterior y la repetían. Solo
+      // se pregunta cuando hay solape — un tipo de novedad que el lote YA tiene y ahora se vuelve
+      // a agregar; agregar algo que el lote no tenía no necesita confirmación. Ya no depende de la
+      // conexión: se consulta SharePoint si se puede (para ver también lo capturado en otros
+      // dispositivos) y, si no, se usa lo de este dispositivo. Nunca bloquea guardar por un
+      // chequeo que no se pudo completar.
       const recepcion = await db.recepciones.get(valores.RecepcionId)
-      if (recepcion?.spId && navigator.onLine) {
-        try {
-          const yaExiste = await existeNovedadCorralDeRecepcion(recepcion.spId)
-          if (yaExiste) {
-            const continuar = window.confirm(
-              `Ya hay una Novedad en Corral guardada para el lote "${recepcion.Title}".\n\n` +
-                'Si es una novedad DISTINTA a la que ya registraste (por ejemplo, ya guardaste "Muerto en reposo" y ahora quieres agregar "Caído"), puedes continuar.\n\n' +
-                'Si es la MISMA información que ya guardaste, cancela para no duplicarla — el reporte diario suma las cantidades de todos los envíos de un mismo lote.\n\n' +
-                '¿Continuar y guardar esta Novedad en Corral también?',
-            )
-            if (!continuar) return
-          }
-        } catch {
-          // Si falla la consulta (por ejemplo, se pierde la conexión justo en este momento), se
-          // sigue guardando sin aviso — nunca bloquear la captura por un chequeo que no se pudo
-          // completar.
+      if (recepcion) {
+        const { llegada, corral } = await leerLoQueYaTieneElLote(recepcion)
+        const solapes = lineasDeSuma(sumarConteos(llegada, corral), conteosNuevosDelFormulario(valores as unknown as Record<string, unknown>)).filter(
+          (l) => l.yaTiene > 0,
+        )
+        if (solapes.length > 0) {
+          const continuar = window.confirm(
+            `Esta novedad se SUMA a lo que el lote "${recepcion.Title}" ya tiene registrado — no lo reemplaza:\n\n` +
+              solapes
+                .map((l) => `• Ya tiene ${fraseConteo(l.clave, l.yaTiene)} → con esta quedará con ${fraseConteo(l.clave, l.quedara)}`)
+                .join('\n') +
+              '\n\nSi es una novedad NUEVA (otros animales), continúa.\n' +
+              'Si es la MISMA información que ya habías guardado, cancela para no duplicarla.\n\n' +
+              '¿Agregar esta novedad?',
+          )
+          if (!continuar) return
         }
       }
 
@@ -180,23 +241,52 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
         id: crypto.randomUUID(),
         EstadoSync: 'Pendiente',
         CapturadaEn: new Date().toISOString(),
+        // Quién la guardó — para rastrear un duplicado sin adivinar (igual que Recepción).
+        CapturadoPor: usuario.Title,
       }
       await db.novedadesCorral.put(registro)
       reset(VALORES_INICIALES)
-      setMensaje('Novedad de corral guardada en este dispositivo.')
+      setMensaje('Novedad agregada al lote y guardada en este dispositivo.')
 
       if (navigator.onLine) {
-        void sincronizar(usuario.Correo)
+        const refrescar = () => setVersionConsulta((v) => v + 1)
+        void sincronizar(usuario.Correo).then(refrescar, refrescar)
       }
     } finally {
       setGuardando(false)
     }
   }
 
+  /**
+   * Lo que el lote tiene ahora mismo, leído de nuevo (no del estado de pantalla, que pudo quedar
+   * viejo): la llegada sale de la Recepción local y el corral de SharePoint si hay conexión, o de
+   * Dexie si no.
+   */
+  async function leerLoQueYaTieneElLote(recepcion: Recepcion) {
+    const locales = (await db.novedadesCorral.where('RecepcionId').equals(recepcion.id).toArray()) as unknown as Array<
+      Record<string, unknown> & { id: string; EstadoSync: string; spId?: string }
+    >
+    let remotos: ResumenNovedadCorral[] | undefined
+    if (recepcion.spId && navigator.onLine) {
+      try {
+        remotos = await listarNovedadesCorralDeRecepcion(recepcion.spId)
+      } catch {
+        remotos = undefined
+      }
+    }
+    return {
+      llegada: conteosDeLlegada(recepcion),
+      corral: conteosDeCorral(combinarRegistros(locales, remotos).registros),
+    }
+  }
+
   return (
     <div>
       <h1 className="text-xl font-semibold text-slate-800">Novedades en Corral</h1>
-      <p className="mt-1 text-sm text-slate-500">Registra lo observado durante el reposo del lote en corral.</p>
+      <p className="mt-1 text-sm text-slate-500">
+        Registra lo observado durante el reposo del lote en corral. Cada novedad que agregas se{' '}
+        <span className="font-medium">suma</span> a lo que el lote ya tiene — no reemplaza nada.
+      </p>
 
       {mensaje && <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{mensaje}</p>}
       {errorBusqueda && (
@@ -273,6 +363,17 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
             </button>
           </div>
         </SeccionFormulario>
+
+        {loteElegido && (
+          <PanelLoteRegistrado
+            tituloLote={loteElegido.Title}
+            llegada={conteosDeLlegada(loteElegido)}
+            registros={registrosDelLote}
+            completo={registrosCompletos}
+            nuevo={conteosNuevos}
+            corral={conteosDeCorral(registrosDelLote)}
+          />
+        )}
 
         <SeccionFormulario titulo="Observaciones en corral">
           <div className="space-y-2">
@@ -359,7 +460,7 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
           disabled={isSubmitting || guardando}
           className="rounded-md bg-brand-navy px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-navy-hover disabled:opacity-60"
         >
-          {guardando ? 'Guardando…' : 'Guardar novedad'}
+          {guardando ? 'Guardando…' : 'Agregar novedad'}
         </button>
       </form>
     </div>
