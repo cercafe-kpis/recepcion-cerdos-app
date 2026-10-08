@@ -1,4 +1,5 @@
 import { createItem, deleteItem, getItem, listItems, updateItem } from './client'
+import { resumenDeCampos, type ResumenNovedadCorral } from '../utils/resumenNovedades'
 import type {
   Asociado,
   ConsolidadoTiquete,
@@ -776,8 +777,34 @@ export async function crearNovedadCorralEnSharePoint(
   fields: Record<string, unknown> & { RecibidaEn?: string },
 ): Promise<{ spId: string; RecibidaEn: string }> {
   const RecibidaEn = new Date().toISOString()
-  const item = await createItem('NovedadesCorral', { ...fields, RecibidaEn })
-  return { spId: item.id, RecibidaEn }
+  try {
+    const item = await createItem('NovedadesCorral', { ...fields, RecibidaEn })
+    return { spId: item.id, RecibidaEn }
+  } catch (err) {
+    // `CapturadoPor` (quién guardó la novedad) necesita su propia columna de texto en la lista
+    // NovedadesCorral. Si todavía no existe, Graph rechaza TODO el registro con un 400 que nombra
+    // la columna — y sin este respaldo ninguna novedad nueva sincronizaría hasta crearla. Un 400 de
+    // validación no crea nada en SharePoint, así que reintentar sin ese campo no puede duplicar.
+    if (fields.CapturadoPor !== undefined && /CapturadoPor/i.test((err as Error).message)) {
+      const { CapturadoPor: _sinAutor, ...sinAutor } = fields
+      const item = await createItem('NovedadesCorral', { ...sinAutor, RecibidaEn })
+      return { spId: item.id, RecibidaEn }
+    }
+    throw err
+  }
+}
+
+/**
+ * Las Novedades en Corral YA guardadas de un lote, una por una (a diferencia de
+ * obtenerNovedadCorralDeRecepcion(), que las suma en un solo registro). La usa el panel "Lo que ya
+ * tiene este lote" de NovedadesCorral.tsx, que necesita mostrar cuándo y quién guardó cada una.
+ */
+export async function listarNovedadesCorralDeRecepcion(recepcionSpId: string): Promise<ResumenNovedadCorral[]> {
+  const items = await listItems<Record<string, unknown>>(
+    'NovedadesCorral',
+    `$expand=fields&$filter=fields/RecepcionId eq '${recepcionSpId.replace(/'/g, "''")}'`,
+  )
+  return items.map((item) => resumenDeCampos(item.id, item.fields, false))
 }
 
 /**
