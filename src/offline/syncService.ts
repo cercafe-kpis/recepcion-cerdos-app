@@ -14,6 +14,7 @@ import {
   listarTiquetesDeRecepcion,
   listarUsuarios,
   listarVehiculos,
+  obtenerNovedadCorralDeRecepcion,
   registrarLog,
 } from '../graph/lists'
 import type { ConsolidadoTiquete, NovedadCorral, Recepcion } from '../types/models'
@@ -325,7 +326,18 @@ async function sincronizarNovedadesCorral(resultado: ResultadoSync): Promise<voi
       const novedadSincronizada: NovedadCorral = { ...nov, spId, RecibidaEn, EstadoSync: 'Sincronizada' }
       await db.novedadesCorral.update(nov.id, { spId, RecibidaEn, EstadoSync: 'Sincronizada' })
 
-      await generarTiquetesNovedadCorral(novedadSincronizada, { spId: padre.spId, Consecutivo: padre.Consecutivo })
+      // Los tiquetes se generan a partir de la SUMA de TODOS los registros de Novedades en Corral
+      // del lote, no solo del que se acaba de subir. generarTiquetesNovedadCorral() compara la
+      // cantidad que recibe contra los tiquetes que el lote YA tiene: con solo este registro, un
+      // segundo envío con "1 caído, beneficio de emergencia 1" para un lote que ya tenía 1 caído
+      // comparaba 1 contra 1 y no creaba nada — el tiquete nuevo no aparecía en Consolidado hasta que
+      // un Administrador usaba "Volver a generar tiquetes" (que sí suma los registros). Reportado por
+      // Nathalia el 2026-10-09. Es la misma suma que usan los reportes.
+      const combinada = await obtenerNovedadCorralDeRecepcion(padre.spId, novedadSincronizada)
+      await generarTiquetesNovedadCorral(combinada ?? novedadSincronizada, {
+        spId: padre.spId,
+        Consecutivo: padre.Consecutivo,
+      })
       await cachearTiquetesDeRecepcion(padre.spId)
       resultado.novedadesSubidas++
     } catch (err) {
@@ -404,7 +416,13 @@ export async function cachearTiquetesDeRecepcion(recepcionSpId: string): Promise
   const tiquetes = await listarTiquetesDeRecepcion(recepcionSpId)
   const idsFrescos = new Set(tiquetes.map((t) => t.id))
   await db.transaction('rw', db.consolidadoTiquetes, async () => {
-    await db.consolidadoTiquetes.bulkPut(tiquetes)
+    // Una edición hecha aquí que todavía no subió a SharePoint (EstadoSync 'Pendiente') NO se
+    // pisa con la versión de SharePoint, que todavía no la tiene. Importa desde que Consolidado se
+    // refresca solo cada pocos segundos (ver el efecto de refresco automático en Consolidado.tsx):
+    // sin esto, un Tiquete/Destino guardado sin conexión podía borrarse justo antes de sincronizar.
+    const localesAntes = await db.consolidadoTiquetes.where('RecepcionId').equals(recepcionSpId).toArray()
+    const pendientesLocales = new Set(localesAntes.filter((t) => t.EstadoSync === 'Pendiente').map((t) => t.id))
+    await db.consolidadoTiquetes.bulkPut(tiquetes.filter((t) => !pendientesLocales.has(t.id)))
     const locales = await db.consolidadoTiquetes.where('RecepcionId').equals(recepcionSpId).toArray()
     const idsABorrar = locales.filter((t) => !idsFrescos.has(t.id)).map((t) => t.id)
     if (idsABorrar.length > 0) {
