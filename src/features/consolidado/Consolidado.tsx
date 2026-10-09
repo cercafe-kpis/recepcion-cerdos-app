@@ -11,6 +11,7 @@ import {
 } from '../../offline/syncService'
 import {
   actualizarConsecutivoYOrden,
+  actualizarFortuitosDeRecepcion,
   actualizarGranjaDeRecepcion,
   actualizarFechaDeRecepcion,
   actualizarHorasDeRecepcion,
@@ -25,6 +26,7 @@ import {
   obtenerNovedadCorralDeRecepcion,
   obtenerRecepcionActual,
   reabrirLote,
+  registrarLog,
 } from '../../graph/lists'
 import { esErrorDeSesion } from '../../graph/client'
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
@@ -128,6 +130,15 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [nuevaFecha, setNuevaFecha] = useState('')
   const [guardandoFecha, setGuardandoFecha] = useState(false)
 
+  // Agregar fortuito (2026-10-09, a pedido de Nathalia) — para cuando a quien capturó la Recepción se
+  // le olvidó un fortuito de transporte/desembarque. Candado: `soloLectura` (cualquiera que no sea
+  // Consultor mientras el lote esté "En proceso"; solo Administrador cuando ya está "Completo"). Ver
+  // guardarFortuito() más abajo y actualizarFortuitosDeRecepcion() en graph/lists.ts.
+  const [agregandoFortuito, setAgregandoFortuito] = useState(false)
+  const [tipoFortuito, setTipoFortuito] = useState<'Muerto en Transporte' | 'Muerto en Desembarque'>('Muerto en Transporte')
+  const [cantidadFortuito, setCantidadFortuito] = useState('1')
+  const [guardandoFortuito, setGuardandoFortuito] = useState(false)
+
   // Panel "Consecutivos repetidos" (2026-09-29, a pedido de Nathalia — primer caso real de este
   // conflicto en producción): antes la app solo avisaba cuántos había (badge en Navbar.tsx), sin
   // ninguna pantalla para resolverlos. Candado: `puedeResolverConflictos` arriba (abierto a
@@ -174,6 +185,14 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   // Fortuito antes de alcanzar a ponerle la Factura, justo cuando el proceso se hace en varias
   // partes/sesiones separadas. Nathalia confirmó explícitamente (2026-09-11) dejar esta parte tal
   // cual: un Administrador siempre puede seguir editando un lote ya cerrado, viejo y nuevo.
+  // Fortuitos actuales del lote: de la copia FRESCA de SharePoint (`origenes`) cuando ya cargó para
+  // este lote, y si no, de la de Dexie. Reposo vive en Novedades en Corral.
+  const origenDelLote = recepcion && origenes?.spId === recepcion.spId ? origenes : undefined
+  const fortuitosActuales = {
+    transporte: (origenDelLote?.recepcion ?? recepcion)?.FortuitoCantMuertoTransporte ?? 0,
+    desembarque: (origenDelLote?.recepcion ?? recepcion)?.FortuitoCantMuertoDesembarque ?? 0,
+    reposo: origenDelLote?.novedadCorral?.CantMuertoReposo ?? 0,
+  }
   const loteCompleto = recepcion?.EstadoLote === 'Completo'
   const soloLectura = usuario.Rol === 'Consultor' || (loteCompleto && !esAdmin)
 
@@ -754,6 +773,64 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     }
   }
 
+  /**
+   * Suma fortuitos a un lote que ya fue recepcionado. El total nuevo se calcula sobre el conteo
+   * ACTUAL de SharePoint (no sobre la copia de Dexie de este dispositivo, que puede estar vieja),
+   * se guarda en la Recepción, se copia a Dexie y se generan los tiquetes que falten
+   * (generarTiquetesFaltantes nunca duplica: solo crea del número ya existente + 1 en adelante). Si
+   * el lote estaba "Completo" (solo Administrador llega hasta aquí), se reabre: el tiquete nuevo
+   * nace vacío y el lote ya no está del todo diligenciado. "Muerto en Reposo" no se agrega aquí: su
+   * conteo vive en Novedades en Corral, que ya permite registrar varias veces.
+   */
+  async function guardarFortuito() {
+    if (!recepcion?.spId || soloLectura) return
+    const cantidad = Math.floor(Number(cantidadFortuito))
+    if (!Number.isFinite(cantidad) || cantidad < 1) {
+      setError('Escribe una cantidad de fortuitos de 1 o más.')
+      return
+    }
+    setGuardandoFortuito(true)
+    setError(undefined)
+    try {
+      const fresca = await obtenerRecepcionActual(recepcion.spId)
+      const esTransporte = tipoFortuito === 'Muerto en Transporte'
+      const actual = (esTransporte ? fresca.FortuitoCantMuertoTransporte : fresca.FortuitoCantMuertoDesembarque) ?? 0
+      const dondeMurio = esTransporte ? 'en transporte' : 'en desembarque'
+      const confirmar = window.confirm(
+        `Este lote tiene ${actual} fortuito${actual === 1 ? '' : 's'} ${dondeMurio}.\n\n` +
+          `Se suman ${cantidad} y quedarán ${actual + cantidad}. Se creará el tiquete pendiente de cada uno.` +
+          (fresca.EstadoLote === 'Completo' ? '\n\nEl lote está Completo: se volverá a poner "En proceso".' : ''),
+      )
+      if (!confirmar) return
+      const cambios = esTransporte
+        ? { FortuitoMuertoTransporte: true, FortuitoCantMuertoTransporte: actual + cantidad }
+        : { FortuitoMuertoDesembarque: true, FortuitoCantMuertoDesembarque: actual + cantidad }
+      await actualizarFortuitosDeRecepcion(recepcion.spId, cambios)
+      const { id: _id, ...campos } = fresca
+      await db.recepciones.update(recepcion.id, { ...campos, ...cambios })
+      await generarTiquetesFaltantes({ ...recepcion, ...campos, ...cambios })
+      if (fresca.EstadoLote === 'Completo') {
+        await reabrirLote(recepcion.spId)
+        await db.recepciones.update(recepcion.id, { EstadoLote: 'En proceso' })
+      }
+      await cachearTiquetesDeRecepcion(recepcion.spId)
+      await cargarOrigenes(recepcion.spId)
+      await registrarLog({
+        RecepcionId: recepcion.spId,
+        Usuario: usuario.Title,
+        Accion: 'Fortuito agregado',
+        DetalleJson: JSON.stringify({ Tipo: tipoFortuito, Agregados: cantidad, Total: actual + cantidad }),
+        CreadoEn: new Date().toISOString(),
+      }).catch(() => undefined) // la bitácora nunca debe tumbar la operación
+      setAgregandoFortuito(false)
+      setCantidadFortuito('1')
+    } catch (err) {
+      setError(`No se pudo agregar el fortuito: ${(err as Error).message}`)
+    } finally {
+      setGuardandoFortuito(false)
+    }
+  }
+
   async function guardarCambio(t: ConsolidadoTiquete, cambios: Partial<ConsolidadoTiquete>) {
     await guardarEdicionTiqueteLocal(t.id, cambios)
     if (navigator.onLine) {
@@ -1258,6 +1335,75 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                     Editar fecha
                   </button>
                 )}
+              </div>
+            )}
+            {/* Fortuitos del lote + "Agregar fortuito" (2026-10-09, a pedido de Nathalia) — candado:
+                `soloLectura`, igual que Granja. Ver guardarFortuito() arriba. */}
+            {recepcion.spId && (
+              <div className="mt-3">
+                <p className="text-xs text-slate-600">
+                  Fortuitos del lote: en transporte{' '}
+                  <strong>{fortuitosActuales.transporte}</strong> · en desembarque{' '}
+                  <strong>{fortuitosActuales.desembarque}</strong> · en reposo{' '}
+                  <strong>{fortuitosActuales.reposo}</strong>
+                </p>
+                {!soloLectura &&
+                  (agregandoFortuito ? (
+                    <div className="mt-2 flex flex-wrap items-end gap-3">
+                      <div className="w-56">
+                        <CampoSelect
+                          etiqueta="Tipo de fortuito"
+                          value={tipoFortuito}
+                          onChange={(e) => setTipoFortuito(e.target.value as typeof tipoFortuito)}
+                          opciones={[
+                            { value: 'Muerto en Transporte', label: 'Muerto en transporte' },
+                            { value: 'Muerto en Desembarque', label: 'Muerto en desembarque' },
+                          ]}
+                        />
+                      </div>
+                      <div className="w-28">
+                        <CampoTexto
+                          type="number"
+                          min={1}
+                          etiqueta="Cantidad"
+                          value={cantidadFortuito}
+                          onChange={(e) => setCantidadFortuito(e.target.value)}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void guardarFortuito()}
+                        disabled={guardandoFortuito || !navigator.onLine}
+                        className="rounded-md bg-brand-navy px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-navy-hover disabled:opacity-50"
+                      >
+                        {guardandoFortuito ? 'Guardando…' : 'Guardar fortuito'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAgregandoFortuito(false)
+                          setError(undefined)
+                        }}
+                        disabled={guardandoFortuito}
+                        className="text-xs font-medium text-slate-500 hover:text-brand-red disabled:opacity-50"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setError(undefined)
+                        setAgregandoFortuito(true)
+                      }}
+                      disabled={!navigator.onLine}
+                      title="Para cuando se olvidó registrar un fortuito de transporte o desembarque al recibir el lote"
+                      className="mt-1 text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
+                    >
+                      Agregar fortuito
+                    </button>
+                  ))}
               </div>
             )}
             {/* Editar Granja (2026-09-24, a pedido de Nathalia) — a diferencia del candado de
