@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../../offline/db'
 import { sincronizar } from '../../offline/syncService'
+import { buscarRecepcionesPorConsecutivo } from '../../graph/lists'
 import { CampoCheckbox, CampoSelect, CampoTexto, SeccionFormulario } from '../../components/CamposFormulario'
 import { recepcionSchema, type RecepcionFormInput, type RecepcionFormValues } from './recepcionSchema'
 import type { Recepcion as RecepcionModelo, Usuario } from '../../types/models'
@@ -61,6 +62,50 @@ function formatearDecimal(valor: string): string {
   return resto.length > 0 ? `${entero}.${resto.join('')}` : entero
 }
 
+/** Un lote que ya existe con el mismo Consecutivo — ver buscarLoteExistente(). */
+type LoteExistente = { fecha: string; soloEnEsteDispositivo: boolean }
+
+/**
+ * El Consecutivo es único (2026-10-09, a pedido de Nathalia): antes solo se detectaba un repetido
+ * al sincronizar (ver existeConsecutivo() en graph/lists.ts y el panel "Consecutivos repetidos" de
+ * Consolidado.tsx), cuando ya era tarde para quien lo digitó. Ahora se revisa mientras escribe y de
+ * nuevo justo antes de guardar. Primero Dexie de ESTE dispositivo (cubre también lo capturado sin
+ * conexión y todavía sin subir) y, si hay internet, SharePoint (cubre lo que capturó otro
+ * dispositivo). Sin internet solo se puede revisar lo local — la revisión al sincronizar sigue
+ * siendo la red de seguridad para ese caso. Si SharePoint no responde, no se bloquea nada: la
+ * persona puede seguir capturando y el chequeo al sincronizar lo atrapa igual.
+ */
+async function buscarLoteExistente(consecutivo: string): Promise<LoteExistente | undefined> {
+  const valor = consecutivo.trim()
+  if (!valor) return undefined
+  const locales = await db.recepciones.filter((r) => r.Consecutivo.trim() === valor).toArray()
+  if (locales.length > 0) {
+    return {
+      fecha: locales[0].FechaRecepcion.slice(0, 10),
+      soloEnEsteDispositivo: locales.every((r) => r.EstadoSync !== 'Sincronizada'),
+    }
+  }
+  if (navigator.onLine) {
+    try {
+      const remotas = await buscarRecepcionesPorConsecutivo(valor)
+      if (remotas.length > 0) return { fecha: remotas[0].FechaRecepcion.slice(0, 10), soloEnEsteDispositivo: false }
+    } catch {
+      // Sin respuesta de SharePoint: se deja pasar, el chequeo al sincronizar es la red de seguridad.
+    }
+  }
+  return undefined
+}
+
+function textoLoteRepetido(consecutivo: string, existente: LoteExistente): string {
+  const que = existente.soloEnEsteDispositivo
+    ? `ya está capturado en este dispositivo (${existente.fecha}) y falta que se envíe`
+    : `ya fue recepcionado (${existente.fecha})`
+  return (
+    `El consecutivo ${consecutivo.trim()} ${que}, no se puede repetir. ` +
+    `Si solo falta registrar un fortuito, ve a Consolidado, busca el lote y usa "Agregar fortuito".`
+  )
+}
+
 const VALORES_INICIALES: RecepcionFormInput = {
   Consecutivo: '',
   NumeroOrden: '',
@@ -109,6 +154,7 @@ const VALORES_INICIALES: RecepcionFormInput = {
 export function Recepcion({ usuario }: { usuario: Usuario }) {
   const [guardando, setGuardando] = useState(false)
   const [mensaje, setMensaje] = useState<string>()
+  const [errorGuardado, setErrorGuardado] = useState<string>()
 
   const asociados = useLiveQuery(() => db.asociados.filter((a) => a.Activo).toArray(), []) ?? []
   const granjas = useLiveQuery(() => db.granjas.filter((g) => g.Activa).toArray(), []) ?? []
@@ -134,6 +180,23 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
   const registroGuiaICA = register('GuiaSanitariaICA')
   const registroPeso = register('PesoPromedioGranja')
 
+  // Aviso en vivo de Consecutivo repetido (ver buscarLoteExistente() arriba): espera medio segundo
+  // después de la última tecla para no consultar SharePoint en cada letra.
+  const consecutivoEscrito = watch('Consecutivo')
+  const [loteExistente, setLoteExistente] = useState<LoteExistente>()
+  useEffect(() => {
+    let cancelado = false
+    const temporizador = setTimeout(() => {
+      void buscarLoteExistente(consecutivoEscrito ?? '').then((resultado) => {
+        if (!cancelado) setLoteExistente(resultado)
+      })
+    }, 500)
+    return () => {
+      cancelado = true
+      clearTimeout(temporizador)
+    }
+  }, [consecutivoEscrito])
+
   const asociadoSeleccionado = watch('AsociadoId')
   const granjasDelAsociado = useMemo(
     () => (asociadoSeleccionado ? granjas.filter((g) => g.AsociadoId === asociadoSeleccionado) : granjas),
@@ -144,6 +207,15 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
     setGuardando(true)
     setMensaje(undefined)
     try {
+      // Última revisión justo antes de guardar (el aviso en vivo pudo no haber terminado o la
+      // persona pudo escribir y guardar muy rápido).
+      const repetido = await buscarLoteExistente(valores.Consecutivo)
+      if (repetido) {
+        setLoteExistente(repetido)
+        setErrorGuardado(textoLoteRepetido(valores.Consecutivo, repetido))
+        return
+      }
+      setErrorGuardado(undefined)
       const registro: RecepcionModelo = {
         ...valores,
         id: crypto.randomUUID(),
@@ -186,10 +258,21 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
       {mensaje && (
         <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{mensaje}</p>
       )}
+      {errorGuardado && (
+        <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-brand-red">{errorGuardado}</p>
+      )}
 
       <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} className="mt-4 space-y-5">
         <SeccionFormulario titulo="Identificación del lote">
-          <CampoTexto etiqueta="Consecutivo" requerido {...register('Consecutivo')} error={errors.Consecutivo?.message} />
+          <CampoTexto
+            etiqueta="Consecutivo"
+            requerido
+            {...register('Consecutivo')}
+            error={
+              errors.Consecutivo?.message ??
+              (loteExistente ? textoLoteRepetido(consecutivoEscrito ?? '', loteExistente) : undefined)
+            }
+          />
           <CampoTexto etiqueta="Número de orden" requerido {...register('NumeroOrden')} error={errors.NumeroOrden?.message} />
           <CampoTexto
             type="date"
