@@ -485,10 +485,19 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     setRegenerando(true)
     setError(undefined)
     try {
-      await generarTiquetesFaltantes(recepcion)
+      // Se parte SIEMPRE de la Recepción tal como está en SharePoint en este momento, no de la copia
+      // de Dexie de este dispositivo (2026-10-09, a pedido de Nathalia): si otra persona eliminó un
+      // tiquete desde su propio dispositivo (Eliminar resta 1 del conteo en SharePoint, pero solo
+      // copia ese cambio a SU Dexie), la copia local de quien regenera queda con el conteo viejo y
+      // volvía a crear el tiquete recién borrado — que luego aparecía como "De más". Se refresca
+      // también Dexie, igual que "Actualizar desde SharePoint" (actualizar()), sin tocar el `id`.
+      const fresca = await obtenerRecepcionActual(recepcion.spId)
+      const { id: _id, ...campos } = fresca
+      await db.recepciones.update(recepcion.id, campos)
+      await generarTiquetesFaltantes({ ...recepcion, ...campos })
       const novedad = await obtenerNovedadCorralDeRecepcion(recepcion.spId)
       if (novedad) {
-        await generarTiquetesNovedadCorral(novedad, { spId: recepcion.spId, Consecutivo: recepcion.Consecutivo })
+        await generarTiquetesNovedadCorral(novedad, { spId: recepcion.spId, Consecutivo: fresca.Consecutivo })
       }
       await cachearTiquetesDeRecepcion(recepcion.spId)
       await cargarOrigenes(recepcion.spId)
