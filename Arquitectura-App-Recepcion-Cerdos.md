@@ -2006,6 +2006,17 @@ cortaba nada, el navegador lo volvía a convertir en "auto" igual**:
 - **Qué NO cubre**: Ubicaciones/Novedades en Corral/tiquetes sueltos borrados a mano en SharePoint con su
   Recepción intacta (los tiquetes ya se limpian al abrir el lote; las otras dos no se muestran por lote).
 
+## Sesión del 2026-10-09 (tercera parte) — Nuevo informe "Resumen por lote" en Reportes
+
+Pedido de Nathalia: un informe donde el usuario vea, por cada lote, su detalle completo: novedades, tiquetes de los beneficiados de emergencia, grupo asociado, granja, fecha de recepción, cantidad de cerdos y fortuitos. Botón/pestaña: "Resumen por lote".
+
+- Archivos: `src/features/reportes/ResumenPorLote.tsx` (nuevo) y `src/features/reportes/Reporte.tsx` (agrega la pestaña, sin tocar las otras).
+- Datos: igual que las demás pestañas, consulta SharePoint directo al tocar "Generar resumen por lote" (nada en Dexie): `listarRecepcionesPorRangoFecha(desde, hasta)` + por lote `listarTiquetesDeRecepcion` y `obtenerNovedadCorralDeRecepcion` (ya suma todos los registros de corral). Se consulta de a 6 lotes a la vez.
+- Filtros: rango Desde/Hasta (por defecto últimos 7 días), Grupo Asociado opcional (vacío = todos), y un buscador local (consecutivo, orden, asociado, granja, grupo).
+- Cada tarjeta de lote: consecutivo y estado, fecha de recepción, grupo asociado, asociado, granja, # cerdos; novedades de llegada y en corral (total y cuántos fueron de emergencia, más "comportamiento sexual" si se registró); tabla de tiquetes de emergencia (Lesionado/Caído/Agitado: origen, N.°, tiquete, destino; "Pendiente" si aún no tiene número); fortuitos (transporte y desembarque desde Recepción, reposo desde corral; cantidad = el mayor entre lo capturado y los tiquetes generados) con su tabla de tiquete/destino/factura; nota de observaciones.
+- Barra de totales arriba (lotes, cerdos, novedades, tiquetes de emergencia, fortuitos), botón "Descargar imagen" por lote, "Imprimir" (cada tarjeta sin partirse) y "Descargar Excel (CSV)" con una fila por lote (separador `;` y BOM para que Excel en español abra bien).
+- Accesible a todos los perfiles (igual que el resto de Reportes). No cambia datos ni tiquetes: solo lectura.
+
 ## Pendiente / a definir con el equipo
 - **Sin diagnosticar todavía**: lotes capturados el 2026-09-28 en un computador distinto al de
   Nathalia no llegaron a aparecer ni en SharePoint ni en los reportes — descartado que fuera por los
