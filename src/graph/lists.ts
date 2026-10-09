@@ -514,6 +514,33 @@ export async function listarRecepcionesEnProceso(): Promise<Recepcion[]> {
 }
 
 /**
+ * Ids de las Recepciones que existen ahora mismo en SharePoint — solo el id, sin sus campos. Sirve
+ * para detectar cuáles de las que este dispositivo tiene guardadas ya fueron borradas de la lista
+ * (ver limpiarRecepcionesBorradas() en syncService.ts). OJO: trae una sola página (hasta 999), así
+ * que si la lista crece más allá de eso un id ausente NO prueba que se haya borrado — quien lo usa
+ * debe confirmar cada ausente con existeRecepcionEnSharePoint() antes de borrar nada local.
+ */
+export async function listarIdsDeRecepciones(): Promise<Set<string>> {
+  const items = await listItems<Record<string, unknown>>('Recepciones', '$select=id&$top=999')
+  return new Set(items.map((item) => item.id))
+}
+
+/**
+ * ¿Sigue existiendo esta Recepción en SharePoint? Solo un 404 cuenta como "ya no existe"; cualquier
+ * otro error (sin conexión, sesión vencida, permisos, 5xx) se relanza para no confundir una falla
+ * pasajera con un borrado.
+ */
+export async function existeRecepcionEnSharePoint(spId: string): Promise<boolean> {
+  try {
+    await getItem<Record<string, unknown>>('Recepciones', spId)
+    return true
+  } catch (err) {
+    if (/→ 404\b/.test((err as Error).message)) return false
+    throw err
+  }
+}
+
+/**
  * Trae TODAS las Recepciones (En proceso o Completo) cuya FechaRecepcion cae
  * en el rango [desde, hasta] (fechas 'YYYY-MM-DD', ambas inclusive) —
  * a diferencia de listarRecepcionesEnProceso(), esta SÍ trae recepciones ya
