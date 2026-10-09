@@ -17,6 +17,7 @@ import {
   buscarRecepcionesPorConsecutivo,
   decrementarConteoOrigenTiquete,
   eliminarTiquete,
+  tiquetesSobrantes,
   generarTiquetesFaltantes,
   generarTiquetesNovedadCorral,
   listarRecepcionesPorRangoFecha,
@@ -30,6 +31,9 @@ import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { BotonConfirmarSesion } from '../../components/BotonConfirmarSesion'
 import { ReporteDiarioLote } from '../reportes/ReporteDiarioLote'
 import type { ConsolidadoTiquete, Destino, NovedadCorral, Recepcion, Usuario } from '../../types/models'
+
+/** Cada cuánto se vuelven a leer de SharePoint los tiquetes del lote elegido, sin que nadie dé clic. */
+const INTERVALO_REFRESCO_TIQUETES_MS = 20 * 1000
 
 function hoyISO() {
   return new Date().toISOString().slice(0, 10)
@@ -71,6 +75,11 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [error, setError] = useState<string>()
   const [verReporteInmediato, setVerReporteInmediato] = useState(false)
   const [novedadCorral, setNovedadCorral] = useState<NovedadCorral>()
+  // Origen ACTUAL de los tiquetes (Recepción y Novedades en Corral, leídas de SharePoint), para
+  // detectar tiquetes "de más" — ver tiquetesSobrantes() en graph/lists.ts. `spId` evita usar la
+  // respuesta de un lote que ya no es el elegido.
+  const [origenes, setOrigenes] = useState<{ spId: string; recepcion: Recepcion; novedadCorral?: NovedadCorral }>()
+  const [quitandoSobrantes, setQuitandoSobrantes] = useState(false)
   const esAdmin = usuario.Rol === 'Administrador'
   // Panel "Consecutivos repetidos" más abajo: a diferencia de "Editar Consecutivo/Número de orden"
   // (candado `soloLectura`, igual que Granja — ver más abajo), esto corrige o descarta una captura
@@ -219,6 +228,33 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     }
   }, [recepcion?.spId])
 
+  // Refresco AUTOMÁTICO mientras hay un lote elegido (a pedido de Nathalia, 2026-10-09): una novedad
+  // nueva capturada en Novedades en Corral (o desde otro dispositivo) debe aparecer en esta tabla
+  // para cualquier perfil sin que nadie dé clic en "Actualizar". Los tiquetes se crean en
+  // SharePoint cuando el dispositivo que capturó la novedad sincroniza; aquí solo hace falta volver a
+  // leerlos — cada INTERVALO_REFRESCO_TIQUETES_MS y apenas la persona vuelve a esta pestaña. Solo
+  // con conexión y con la pestaña visible, para no gastar datos en segundo plano. No pisa lo que la
+  // persona está escribiendo: cada fila conserva su propio texto mientras se edita, y las ediciones
+  // sin subir se respetan (ver cachearTiquetesDeRecepcion()).
+  useEffect(() => {
+    const spId = recepcion?.spId
+    if (!spId) return
+    const refrescar = () => {
+      if (!navigator.onLine || document.visibilityState !== 'visible') return
+      cachearTiquetesDeRecepcion(spId)
+        .then(() => cargarOrigenes(spId))
+        .catch(() => {
+          // Sin respuesta de SharePoint: se reintenta en el próximo ciclo, sin molestar a nadie.
+        })
+    }
+    const intervalo = window.setInterval(refrescar, INTERVALO_REFRESCO_TIQUETES_MS)
+    document.addEventListener('visibilitychange', refrescar)
+    return () => {
+      window.clearInterval(intervalo)
+      document.removeEventListener('visibilitychange', refrescar)
+    }
+  }, [recepcion?.spId])
+
   // Trae la Novedad en Corral (Lesionado/Caído/Agitado capturados en Ubicación/Novedades en
   // Corral) directo de Graph, para el "reporte inmediato" de abajo — igual que
   // regenerarTiquetes() más abajo, no se guarda en Dexie: solo hace falta para mostrarla en el
@@ -226,9 +262,72 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   useEffect(() => {
     setNovedadCorral(undefined)
     if (recepcion?.spId && navigator.onLine) {
-      void obtenerNovedadCorralDeRecepcion(recepcion.spId).then(setNovedadCorral)
+      void cargarOrigenes(recepcion.spId)
     }
   }, [recepcion?.spId])
+
+  /**
+   * Lee de SharePoint la Recepción y las Novedades en Corral del lote — las dos cosas de las que
+   * salen los tiquetes — para el reporte inmediato de abajo y para avisar de tiquetes "de más"
+   * (ver tiquetesSobrantes()). Si falla (sin conexión o sin sesión) no se muestra ningún aviso:
+   * mejor no avisar que acusar por error.
+   */
+  async function cargarOrigenes(spId: string) {
+    try {
+      const [recepcionFresca, novedad] = await Promise.all([
+        obtenerRecepcionActual(spId),
+        obtenerNovedadCorralDeRecepcion(spId),
+      ])
+      setNovedadCorral(novedad)
+      setOrigenes({ spId, recepcion: recepcionFresca, novedadCorral: novedad })
+    } catch {
+      setOrigenes(undefined)
+    }
+  }
+
+  const sobrantes = useMemo(
+    () =>
+      origenes && recepcion?.spId === origenes.spId
+        ? tiquetesSobrantes(tiquetes, origenes.recepcion, origenes.novedadCorral)
+        : [],
+    [origenes, recepcion?.spId, tiquetes],
+  )
+  const idsSobrantes = useMemo(() => new Set(sobrantes.map((t) => t.id)), [sobrantes])
+
+  /**
+   * Quita de una vez los tiquetes "de más" (ver tiquetesSobrantes()). A diferencia de eliminarFila(),
+   * NO resta nada del conteo de origen: justamente son los que ya no figuran en él. Pide confirmación
+   * mostrando cada uno, incluidos los que ya tengan Tiquete/Destino, porque ese dato se pierde.
+   */
+  async function quitarSobrantes() {
+    if (!recepcion?.spId || sobrantes.length === 0) return
+    const detalle = sobrantes
+      .map(
+        (t) =>
+          `• ${t.GrupoNovedad} · ${t.TipoNovedad} #${t.NumeroAnimalEnLote}` +
+          (t.Tiquete ? ` — ya tiene el tiquete ${t.Tiquete}${t.Destino ? ` (${t.Destino})` : ''}` : ''),
+      )
+      .join('\n')
+    const confirmar = window.confirm(
+      `Estos tiquetes ya no figuran en la Recepción / Novedades en Corral de este lote:\n\n${detalle}\n\n` +
+        'Si se quitan, se borran definitivamente de Consolidado. ¿Quitarlos?',
+    )
+    if (!confirmar) return
+    setQuitandoSobrantes(true)
+    setError(undefined)
+    try {
+      for (const t of sobrantes) {
+        if (!t.spId) continue
+        await eliminarTiquete(t.spId)
+        await db.consolidadoTiquetes.delete(t.id)
+      }
+      await cargarOrigenes(recepcion.spId)
+    } catch (err) {
+      setError(`No se pudieron quitar todos los tiquetes de más: ${(err as Error).message}`)
+    } finally {
+      setQuitandoSobrantes(false)
+    }
+  }
 
   /**
    * "Actualizar desde SharePoint" (botón más abajo). Antes solo traía de nuevo los tiquetes
@@ -250,6 +349,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
       const fresca = await obtenerRecepcionActual(recepcion.spId)
       const { id: _id, ...campos } = fresca
       await db.recepciones.update(recepcion.id, campos)
+      await cargarOrigenes(recepcion.spId)
     } finally {
       setActualizando(false)
     }
@@ -391,6 +491,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
         await generarTiquetesNovedadCorral(novedad, { spId: recepcion.spId, Consecutivo: recepcion.Consecutivo })
       }
       await cachearTiquetesDeRecepcion(recepcion.spId)
+      await cargarOrigenes(recepcion.spId)
     } catch (err) {
       setError(`No se pudieron generar los tiquetes: ${(err as Error).message}`)
     } finally {
@@ -687,6 +788,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
       if (resultado.cambiosRecepcion) {
         await db.recepciones.update(recepcion.id, resultado.cambiosRecepcion)
       }
+      await cargarOrigenes(recepcion.spId)
     } catch (err) {
       setError(`No se pudo eliminar la novedad: ${(err as Error).message}`)
     } finally {
@@ -1285,6 +1387,30 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
             </div>
           </div>
 
+          {sobrantes.length > 0 && (
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 print:hidden">
+              <p className="font-medium">
+                {sobrantes.length === 1
+                  ? 'Hay 1 tiquete de más en este lote.'
+                  : `Hay ${sobrantes.length} tiquetes de más en este lote.`}
+              </p>
+              <p className="mt-0.5 text-xs">
+                La Recepción o las Novedades en Corral ya no tienen esa novedad (por ejemplo, porque se corrigió directo en
+                SharePoint), pero el tiquete sigue aquí. Quedan marcados "De más" en la tabla.
+              </p>
+              {!soloLectura && (
+                <button
+                  type="button"
+                  onClick={() => void quitarSobrantes()}
+                  disabled={quitandoSobrantes || !navigator.onLine}
+                  className="mt-1.5 rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                >
+                  {quitandoSobrantes ? 'Quitando…' : 'Quitar los tiquetes de más'}
+                </button>
+              )}
+            </div>
+          )}
+
           {tiquetes.length === 0 ? (
             <p className="mt-3 text-sm text-slate-500 print:hidden">Este lote no tiene animales con novedad.</p>
           ) : (
@@ -1315,6 +1441,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                       // novedad completa aunque ya tenga Tiquete/Destino cargados, mientras el lote
                       // siga "En proceso". Ver el comentario grande de eliminarFila() arriba.
                       puedeEliminar={!soloLectura}
+                      deMas={idsSobrantes.has(t.id)}
                       eliminando={eliminandoId === t.id}
                       onGuardar={(cambios) => guardarCambio(t, cambios)}
                       onEliminar={() => void eliminarFila(t)}
@@ -1360,6 +1487,7 @@ function FilaTiquete({
   tiquete,
   soloLectura,
   puedeEliminar,
+  deMas,
   eliminando,
   onGuardar,
   onEliminar,
@@ -1367,6 +1495,8 @@ function FilaTiquete({
   tiquete: ConsolidadoTiquete
   soloLectura: boolean
   puedeEliminar: boolean
+  /** true = sobra respecto al conteo actual de la Recepción / Novedades en Corral. */
+  deMas: boolean
   eliminando: boolean
   onGuardar: (cambios: Partial<ConsolidadoTiquete>) => void
   onEliminar: () => void
@@ -1382,7 +1512,7 @@ function FilaTiquete({
   const completo = tiqueteYaCompletado(tiquete)
 
   return (
-    <tr className={clsx(tiquete.EstadoSync === 'Pendiente' && 'bg-amber-50/60')}>
+    <tr className={clsx(tiquete.EstadoSync === 'Pendiente' && 'bg-amber-50/60', deMas && 'bg-red-50')}>
       <td className="px-3 py-2 text-slate-600">{tiquete.GrupoNovedad}</td>
       <td className="px-3 py-2 text-slate-600">{tiquete.TipoNovedad}</td>
       <td className="px-3 py-2 text-slate-600">{tiquete.NumeroAnimalEnLote}</td>
@@ -1443,6 +1573,7 @@ function FilaTiquete({
         {tiquete.EstadoSync === 'Pendiente' && (
           <span className="ml-1.5 text-xs text-amber-600">sin subir</span>
         )}
+        {deMas && <span className="ml-1.5 text-xs font-medium text-red-700">De más</span>}
       </td>
       <td className="px-3 py-2 text-right">
         {puedeEliminar && (
