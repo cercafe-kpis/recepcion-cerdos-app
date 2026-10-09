@@ -1,6 +1,5 @@
 # Arquitectura de datos — App Recepción de Cerdos
 
-
 Diseño técnico (DBA) para la app de captura de datos al ingreso de cerdos a la planta de beneficio de CercafeIA.
 
 ## Plataforma acordada (actualizada 2026-09-01 — reemplaza la decisión de Power Apps)
@@ -1852,6 +1851,160 @@ cortaba nada, el navegador lo volvía a convertir en "auto" igual**:
   SharePoint" (o solo si el lote sigue "En proceso", por la autocorrección de
   `descargarRecepcionesEnProceso()`).
 - Verificado con `tsc -b --noEmit`, `oxlint` (solo advertencias que ya existían) y `npm run build`.
+
+## Sesión del 2026-10-08 — Duplicados por sincronizaciones simultáneas (causa raíz confirmada)
+- **Síntoma**: Novedades en Corral duplicadas (lote 87: dos registros idénticos de "5 agitados") y,
+  una semana antes, dos filas "Caído #1" en un computador (lote 12679) que SharePoint ya no tenía.
+  Los usuarios decían que "la app duplica"; Nathalia dudaba.
+- **Evidencia (REST de SharePoint, `_api/web/lists/getbytitle('NovedadesCorral')/items?$select=Id,CapturadaEn,RecibidaEn,Created&$filter=RecepcionId eq '87'`)**:
+  los items 74 y 75 tienen `CapturadaEn`, `RecibidaEn` Y `Created` idénticos al segundo — una persona
+  no puede generar eso; es la MISMA captura local subida dos veces a la vez. El item 75 nunca se
+  modificó (etag 1) y el 74 tiene etag 6 = 5 ediciones = 5 "Eliminar" de tiquetes sobrantes (cada
+  "Eliminar" resta 1 a `CorralCantAgitadosBenefEmerg` del registro más reciente; con empate tomó el
+  74, por eso quedó en 0). Detalle aparte: `Created` (reloj de SharePoint) va ~6,4 min ANTES que
+  `CapturadaEn`/`RecibidaEn` (reloj del dispositivo) — el reloj de ese dispositivo estaba adelantado.
+- **Causa**: `sincronizar()` no tenía ningún candado y la disparan varios sitios (el "Guardar" de cada
+  formulario, el temporizador y el regreso a la pestaña en `App.tsx`, el botón de la barra,
+  Consolidado). Dos corridas coincidentes leían la misma captura como "Pendiente", ambas la subían y
+  ambas generaban sus tiquetes sin ver los de la otra (10 tiquetes en vez de 5).
+- **Arreglo** (solo `src/offline/syncService.ts`): `sincronizar()` ahora es un envoltorio con (1) cola
+  dentro de la pestaña (cada corrida espera a la anterior y recién ahí lee lo pendiente), (2) una
+  sola corrida "en espera" compartida para no apilar, (3) Web Locks entre pestañas del mismo
+  navegador; la lógica de antes quedó en `sincronizarUnaVez()`. Además, `sigueSiendoPendiente()`
+  vuelve a leer la captura en Dexie justo antes de cada POST (Recepciones/Ubicaciones/Novedades) y
+  la salta si ya no está "Pendiente". Simulado: 3 disparos simultáneos → 3 copias antes, 1 ahora.
+  Verificado con `tsc -b --noEmit`, `oxlint` y `npm run build` sin errores.
+- **Limpieza manual pendiente** (no la hace el código): en `NovedadesCorral` borrar el item **74**
+  (el que quedó con beneficio 0) para que el lote 87 deje de sumar 10 agitados en los reportes; revisar
+  que `ConsolidadoTiquetes` del lote 87 tenga 5 tiquetes de agitados. El item 72 (30/09) también
+  tiene etag 6: puede ser un episodio parecido — revisar.
+- **Ideas aún abiertas** (no pedidas todavía): mostrar lo ya registrado del lote antes de guardar una
+  Novedad en Corral, guardar quién capturó cada Novedad (hoy solo Recepción guarda `CapturadoPor`), y
+  que la generación de tiquetes use la misma suma que los reportes.
+
+### Ampliación 2026-10-08 — Barrido de todas las listas (NovedadesCorral y Ubicaciones)
+- **NovedadesCorral** (REST de toda la lista, items 18–130): además del par 74/75 (RecepcionId 87) hay un
+  segundo par, **104/105 (RecepcionId 118 = lote 12679)**, con `CapturadaEn` 2026-10-06T13:32:38Z
+  idéntico y `Created` con 1 s de diferencia. El 104 tiene etag 2 (un "Eliminar" descontó 1): es el
+  origen de los dos "Caído #1" que se veían en el otro computador. Items con una sola modificación
+  (etag 2) a revisar: 76 (RecepcionId 89), 124 (139) y 130 (140). No hay más pares con la misma hora.
+- **Ubicaciones** (REST de toda la lista, items 14–147): dos pares con `CapturadaEn` idéntico y `Created`
+  a 1–6 s: **23/24 (RecepcionId 22, 15/09)** y **77/78 (RecepcionId 77, 29/09)**. Es la misma carrera de
+  `sincronizar()` — confirma que afectaba a Ubicaciones y no solo a Novedades. Todas las demás filas
+  tienen etag 1 (nunca modificadas).
+- **Registros de Ubicación repetidos por lote pero con hora de captura distinta** (no son carrera; son
+  capturas separadas, posible doble digitación o lote equivocado): RecepcionId 18 (items 19 y 47),
+  35 (items 34 y 55) y 103 (items 103 y 104, capturadas con 89 s de diferencia).
+  Lotes sin ninguna Ubicación entre los vistos: 48, 88 y 123 (puede ser normal o un lote capturado
+  bajo otro RecepcionId — p. ej. el item 47 está bajo el 18 en el hueco del 48).
+- **Limpieza manual adicional**: borrar un item de cada par (Novedades 74 y el sobrante de 104/105;
+  Ubicaciones el sobrante de 23/24 y de 77/78). La limpieza depende de revisar los valores de cada par.
+
+## Sesión del 2026-10-08 (segunda parte) — "Eliminar" tiquete dejaba el reporte con datos de más
+- **Síntoma**: lote 12635 — el reporte semanal mostraba 5 agitados y 5 caídos de más, y en la Papelera
+  de reciclaje de SharePoint aparecían 10 tiquetes eliminados (Agitado #1–5 y Caído #1–5, 01/10 hacia
+  las 10:03–10:05, por el usuario Auxiliar Corrales).
+- **Causa**: `decrementarConteoOrigenTiquete()` (lo que corre "Eliminar" en Consolidado) restaba 1 SOLO
+  del conteo de BENEFICIO DE EMERGENCIA (`...BenefEmerg` / `...BeneficioEmergencia`), que es el que
+  genera tiquetes. Pero `ReporteDiarioLote.tsx` y `ReporteSemanalAsociado.tsx` suman el TOTAL reportado
+  (`CorralCantAgitados`, `NovLlegadaCantCaidos`, etc.). Eliminar 5 tiquetes dejaba el total intacto, así
+  que el reporte seguía contando esos animales. Dos problemas más de la misma función: (1) con tiquetes
+  duplicados por la carrera de sincronizaciones, borrar los sobrantes bajaba a 0 un conteo que estaba
+  bien (lote 87); (2) el descuento en una Recepción no se copiaba a Dexie, y "Volver a generar
+  tiquetes" (que usa la Recepción local) podía recrear el tiquete recién borrado.
+- **Arreglo** (`src/graph/lists.ts` y `src/features/consolidado/Consolidado.tsx`): (a) para
+  Lesionado/Caído/Agitado se resta 1 del beneficio de emergencia Y 1 del total, en el mismo registro,
+  y los indicadores Sí/No pasan a No si su conteo llega a 0; Fortuito resta su única cantidad; (b)
+  si hay MÁS tiquetes de ese grupo y tipo que animales en el conteo de origen, el tiquete es un
+  sobrante y solo se borra la fila, sin tocar ningún conteo; (c) la función ahora devuelve qué hizo
+  (`descontado` / `sobrante` / `sin-conteo`) y los cambios en la Recepción, que Consolidado copia a
+  Dexie; (d) el texto de confirmación de "Eliminar" explica lo anterior.
+- **Pendiente manual**: lo ya eliminado con la versión anterior dejó los totales inflados en
+  SharePoint; hay que corregirlos a mano (lote 12635 y cualquier otro lote donde se haya usado
+  "Eliminar"): comparar en `NovedadesCorral`/`Recepciones` el total reportado con el número real de
+  animales.
+
+## Sesión del 2026-10-08 (tercera parte) — Novedades en Corral: mostrar lo ya registrado, "se suma", quién captura
+- **Pedido**: aplicar las 3 mejoras propuestas para que los usuarios dejen de duplicar novedades:
+  (1) mostrar lo ya registrado del lote antes de guardar, (2) hacer explícito que cada guardado se
+  SUMA, (3) guardar quién captura cada novedad.
+- **(1) Panel "Lo que ya tiene el lote"** (`PanelLoteRegistrado.tsx`, `src/utils/resumenNovedades.ts`): al
+  elegir el lote muestra la llegada (Recepción local), cada envío de corral con hora relativa
+  ("hace 2 h"), quién lo guardó y si está pendiente de enviar, y el total llegada + corral (lo que
+  suman los reportes). Lee SharePoint cuando hay conexión (`listarNovedadesCorralDeRecepcion()` en
+  `graph/lists.ts`, trae cada registro por separado) y siempre Dexie; sin conexión solo ve lo de ese
+  dispositivo y lo avisa en el panel.
+- **(2) "Se suma"**: el botón ahora dice "Agregar novedad"; mientras se llena el formulario aparece
+  "Vas a sumar 1 caído → el lote quedará con 2 (ya tenía 1)"; al guardar, si el tipo de novedad
+  ya existía en el lote (llegada o corral) sale una confirmación con esos números — si el lote no
+  tenía ese tipo, no pregunta. La confirmación ya no depende de estar en línea (usa SharePoint si
+  puede y si no, Dexie). Reemplaza el aviso genérico de `existeNovedadCorralDeRecepcion()` (que
+  sigue exportada pero ya no se usa en este formulario).
+- **(3) `CapturadoPor`** en `NovedadCorral` (opcional, `usuario.Title`). **Requiere crear la columna de
+  texto de una sola línea `CapturadoPor` en la lista NovedadesCorral de SharePoint.** Si la columna
+  todavía no existe, `crearNovedadCorralEnSharePoint()` reintenta sin ese campo (un 400 de
+  validación no crea nada) para no frenar la sincronización — pero entonces no queda el autor.
+- **Hallazgo extra (posible causa de "novedades que no son")**: los formularios muestran la cantidad
+  solo mientras su casilla está marcada, pero react-hook-form conserva el valor de un campo que
+  deja de mostrarse; marcar "Caído", escribir 5 y desmarcar seguía guardando 5, y los reportes suman
+  las cantidades sin mirar la casilla. Se corrigió en Novedades en Corral con
+  `limpiarCantidadesSinMarcar()` (`src/utils/limpiarCantidades.ts`). **Recepcion.tsx tiene el mismo
+  patrón y NO se ha corregido todavía** (pendiente de confirmar con Nathalia).
+- **Pendiente / ideas**: guardar también `CapturadoPor` en Ubicaciones; unificar la generación de
+  tiquetes de corral con la suma de todos los registros (hoy compara cada registro por separado).
+
+## Sesión del 2026-10-08 (cuarta parte) — Consolidado: tiquetes "de más" cuando se corrige directo en SharePoint
+- **Síntoma** (lote 12653): Nathalia corrigió en SharePoint las novedades de llegada (quitó el agitado,
+  agregó un caído) y el reporte semanal quedó bien, pero Consolidado seguía mostrando el tiquete de
+  Agitado (con Tiquete 2277208 y Destino ya diligenciados) aunque diera "Actualizar desde SharePoint".
+- **Causa**: los tiquetes de ConsolidadoTiquetes se CREAN a partir de los conteos de Recepción/NovedadCorral
+  pero nada los borra cuando esos conteos bajan. "Actualizar desde SharePoint" solo trae lo que existe en
+  ConsolidadoTiquetes (y quita lo que ya no está ahí), y "Volver a generar tiquetes" solo crea los que
+  faltan (por eso el Caído sí apareció). Cambiar el conteo de origen a mano no toca los tiquetes.
+- **Arreglo** (`graph/lists.ts` → `tiquetesSobrantes()`; `Consolidado.tsx`): al elegir un lote, y tras
+  actualizar/regenerar/eliminar, se lee de SharePoint la Recepción y las Novedades en Corral y se compara,
+  por grupo y tipo, cuántos tiquetes hay contra el conteo de origen (el de beneficio de emergencia). Los
+  de número más alto que excedan el conteo salen marcados "De más" (fila roja) y aparece un aviso con el
+  botón "Quitar los tiquetes de más", que pide confirmación listando cada uno (incluido su N.º de
+  tiquete y destino si ya los tenía) y los borra SIN tocar los conteos de origen. No borra nada solo:
+  un sobrante puede tener datos diligenciados. Si no se puede leer SharePoint, no se muestra aviso.
+- **Para corregir un lote a mano en SharePoint**: ahora basta cambiar el conteo de origen y abrir/actualizar
+  Consolidado; el aviso indica qué tiquete quedó sobrando. Usar "Volver a generar tiquetes" para los que falten.
+
+## Sesión del 2026-10-09 — Una segunda Novedad en Corral no generaba su tiquete; Consolidado se refresca solo
+- **Síntoma**: con un lote ya completo, agregar en Novedades en Corral una nueva novedad con beneficio de
+  emergencia no hacía aparecer el tiquete en Consolidado; solo el Administrador lo lograba con "Volver a
+  generar tiquetes".
+- **Causa**: `sincronizarNovedadesCorral()` llamaba a `generarTiquetesNovedadCorral()` con SOLO el registro
+  recién subido, y esa función compara la cantidad que recibe contra los tiquetes que el lote YA tiene
+  (por grupo y tipo). Un 2.º registro "1 caído, beneficio 1" en un lote que ya tenía 1 caído comparaba 1
+  contra 1 y no creaba nada. "Volver a generar tiquetes" sí funcionaba porque usa
+  `obtenerNovedadCorralDeRecepcion()`, que SUMA todos los registros — la inconsistencia que ya estaba anotada.
+- **Arreglo** (`syncService.ts`, `graph/lists.ts`): ahora se generan los tiquetes a partir de la suma de todos
+  los registros del lote (`obtenerNovedadCorralDeRecepcion(spId, registroRecienGuardado)`; el 2.º parámetro
+  añade a mano el registro recién creado si el filtro de SharePoint aún no lo devuelve). La generación es la
+  misma suma que usan los reportes. Efecto colateral útil: cualquier lote que tuviera tiquetes sin generar
+  por este motivo se completa en la siguiente sincronización de una novedad suya (o con "Volver a generar").
+- **Refresco automático de Consolidado** (`Consolidado.tsx`): con un lote elegido, la tabla se vuelve a leer de
+  SharePoint cada 20 s y apenas la persona vuelve a la pestaña (solo con conexión y pestaña visible); sirve
+  para todos los perfiles. `cachearTiquetesDeRecepcion()` ya no pisa las ediciones locales todavía sin
+  subir (`EstadoSync` 'Pendiente'). Limitación: el tiquete lo crea el dispositivo que capturó la novedad al
+  sincronizar; si ese dispositivo estaba sin conexión, aparece cuando vuelva a tenerla.
+
+## Sesión del 2026-10-09 (segunda parte) — Recepciones borradas en SharePoint seguían en la app
+- **Síntoma**: Nathalia borró de SharePoint un lote de prueba (Consecutivo 0000, 2026-10-09) y la app lo
+  seguía mostrando con todos sus datos en los buscadores de Consolidado/Ubicación/Novedades en Corral.
+- **Causa**: la copia local (Dexie) solo agregaba y actualizaba Recepciones; nada quitaba las que ya no
+  existían en SharePoint (para los tiquetes ya existía algo parecido desde 2026-09-24, no para la Recepción).
+- **Arreglo** (`syncService.ts` → `limpiarRecepcionesBorradas()`, `graph/lists.ts` → `listarIdsDeRecepciones()`
+  y `existeRecepcionEnSharePoint()`): dentro de `sincronizar()` (cada 2 min, al volver a la pestaña y con el
+  botón de la barra) se revisan las Recepciones locales ya subidas (`spId` + "Sincronizada"); las que no
+  están en la lista de ids de SharePoint se confirman una por una con un `getItem` (solo un 404 cuenta
+  como borrada — una lista truncada a 999 o una falla pasajera nunca borra nada) y se quitan junto con
+  sus Ubicaciones, Novedades en Corral y tiquetes locales. Las capturas pendientes de subir no se tocan.
+  Cuesta una consulta de ids por sincronización.
+- **Qué NO cubre**: Ubicaciones/Novedades en Corral/tiquetes sueltos borrados a mano en SharePoint con su
+  Recepción intacta (los tiquetes ya se limpian al abrir el lote; las otras dos no se muestran por lote).
 
 ## Pendiente / a definir con el equipo
 - **Sin diagnosticar todavía**: lotes capturados el 2026-09-28 en un computador distinto al de
