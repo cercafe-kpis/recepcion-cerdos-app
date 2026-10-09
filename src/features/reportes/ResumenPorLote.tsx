@@ -7,6 +7,7 @@ import {
 } from '../../graph/lists'
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { descargarElementoComoImagen } from '../../utils/descargarImagen'
+import { crearExcel, type Celda } from '../../utils/crearExcel'
 import type { ConsolidadoTiquete, NovedadCorral, Recepcion, TipoNovedad } from '../../types/models'
 
 function hoyISO() {
@@ -91,10 +92,24 @@ function ordenarTiquetes(tiquetes: ConsolidadoTiquete[]): ConsolidadoTiquete[] {
   )
 }
 
-/** Escapa un valor para CSV (comillas dobles, comas y saltos de línea). */
-function celdaCSV(valor: string | number): string {
-  const texto = String(valor)
-  return /[",\n;]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto
+/**
+ * Lesionados / Caídos / Agitados de un lote SUMANDO llegada + corral (pedido de Nathalia para el
+ * Excel: "sumar los caídos, agitados y lesionados tanto de llegada como de corral"), y cuántos de
+ * ellos se beneficiaron de emergencia. Usa el total crudo (Cant…), igual que los demás reportes.
+ */
+function totalesDeNovedades(d: DatosLote): { lesionados: number; caidos: number; agitados: number } {
+  const { llegada, corral } = lineasDeNovedades(d)
+  const suma = (etiqueta: string) =>
+    [...llegada, ...corral].filter((l) => l.etiqueta === etiqueta).reduce((acc, l) => acc + l.total, 0)
+  return { lesionados: suma('Lesionados'), caidos: suma('Caídos'), agitados: suma('Agitados') }
+}
+
+/** Animales del lote beneficiados de emergencia: el mayor entre lo capturado y los tiquetes ya generados. */
+function beneficiadosDeEmergencia(d: DatosLote): number {
+  const { llegada, corral } = lineasDeNovedades(d)
+  const capturados = [...llegada, ...corral].reduce((acc, l) => acc + l.emergencia, 0)
+  const tiquetes = d.tiquetes.filter((t) => TIPOS_EMERGENCIA.includes(t.TipoNovedad)).length
+  return Math.max(capturados, tiquetes)
 }
 
 /**
@@ -202,63 +217,113 @@ export function ResumenPorLote({
       cerdos += d.recepcion.NumeroTotalCerdos ?? 0
       const { llegada, corral } = lineasDeNovedades(d)
       for (const l of [...llegada, ...corral]) novedades += l.total
-      emergencia += d.tiquetes.filter((t) => TIPOS_EMERGENCIA.includes(t.TipoNovedad)).length
+      emergencia += beneficiadosDeEmergencia(d)
       fortuitos += Object.values(cantidadesFortuitos(d)).reduce((a, b) => a + b, 0)
     }
     return { cerdos, novedades, emergencia, fortuitos }
   }, [lotesVisibles])
 
-  function descargarCSV() {
-    const encabezado = [
-      'Consecutivo',
-      'Fecha recepción',
-      'Grupo asociado',
-      'Asociado',
-      'Granja',
-      '# Cerdos',
-      'Lesionados (llegada)',
-      'Caídos (llegada)',
-      'Agitados (llegada)',
-      'Lesionados (corral)',
-      'Caídos (corral)',
-      'Agitados (corral)',
-      'Fortuito transporte',
-      'Fortuito desembarque',
-      'Fortuito reposo',
-      'Tiquetes de emergencia',
-    ]
-    const filas = lotesVisibles.map((d) => {
+  function descargarExcel() {
+    const filas: Celda[][] = lotesVisibles.map((d) => {
       const r = d.recepcion
+      const n = totalesDeNovedades(d)
       const f = cantidadesFortuitos(d)
-      const tiquetesEmergencia = ordenarTiquetes(d.tiquetes.filter((t) => TIPOS_EMERGENCIA.includes(t.TipoNovedad)))
-        .map((t) => `${t.TipoNovedad} #${t.NumeroAnimalEnLote}: ${t.Tiquete || 'sin tiquete'}${t.Destino ? ` (${t.Destino})` : ''}`)
-        .join(' | ')
+      const totalNovedades = n.lesionados + n.caidos + n.agitados
+      const totalFortuitos = f['Muerto en Transporte'] + f['Muerto en Desembarque'] + f['Muerto en Reposo']
       return [
         r.Consecutivo,
-        formatearFecha(r.FechaRecepcion),
+        r.NumeroOrden,
+        { fecha: r.FechaRecepcion },
         grupoDe(r),
         mapaAsociados.get(r.AsociadoId)?.Title ?? '',
         mapaGranjas.get(r.GranjaId)?.Title ?? '',
         r.NumeroTotalCerdos ?? 0,
-        r.NovLlegadaCantLesionados ?? 0,
-        r.NovLlegadaCantCaidos ?? 0,
-        r.NovLlegadaCantAgitados ?? 0,
-        d.novedadCorral?.CorralCantLesionados ?? 0,
-        d.novedadCorral?.CorralCantCaidos ?? 0,
-        d.novedadCorral?.CorralCantAgitados ?? 0,
+        n.lesionados,
+        n.caidos,
+        n.agitados,
+        totalNovedades,
+        beneficiadosDeEmergencia(d),
         f['Muerto en Transporte'],
         f['Muerto en Desembarque'],
         f['Muerto en Reposo'],
-        tiquetesEmergencia,
+        totalFortuitos,
+        r.EstadoLote,
       ]
     })
-    // Punto y coma como separador y BOM: así Excel en español abre las columnas bien y con tildes.
-    const contenido = [encabezado, ...filas].map((fila) => fila.map(celdaCSV).join(';')).join('\r\n')
-    const blob = new Blob(['﻿', contenido], { type: 'text/csv;charset=utf-8' })
+
+    // Hoja 2: un renglón por tiquete (beneficiados de emergencia y fortuitos), para ver el detalle
+    // de tiquete y destino de cada animal.
+    const detalle: Celda[][] = []
+    for (const d of lotesVisibles) {
+      const r = d.recepcion
+      for (const t of ordenarTiquetes(d.tiquetes)) {
+        detalle.push([
+          r.Consecutivo,
+          r.NumeroOrden,
+          { fecha: r.FechaRecepcion },
+          grupoDe(r),
+          mapaAsociados.get(r.AsociadoId)?.Title ?? '',
+          mapaGranjas.get(r.GranjaId)?.Title ?? '',
+          t.GrupoNovedad,
+          t.TipoNovedad,
+          t.NumeroAnimalEnLote,
+          t.Tiquete ?? '',
+          t.Destino ?? '',
+          t.Factura ?? '',
+          t.EstadoTiquete,
+        ])
+      }
+    }
+
+    const blob = crearExcel([
+      {
+        nombre: 'Resumen por lote',
+        columnas: [
+          { titulo: 'Consecutivo', ancho: 13 },
+          { titulo: 'Orden', ancho: 12 },
+          { titulo: 'Fecha de recepción', ancho: 14 },
+          { titulo: 'Grupo asociado', ancho: 16 },
+          { titulo: 'Asociado', ancho: 30 },
+          { titulo: 'Granja', ancho: 26 },
+          { titulo: '# Cerdos', ancho: 10 },
+          { titulo: 'Lesionados (llegada + corral)', ancho: 15 },
+          { titulo: 'Caídos (llegada + corral)', ancho: 15 },
+          { titulo: 'Agitados (llegada + corral)', ancho: 15 },
+          { titulo: 'Total novedades', ancho: 12 },
+          { titulo: 'Beneficiados de emergencia', ancho: 15 },
+          { titulo: 'Fortuito en transporte', ancho: 12 },
+          { titulo: 'Fortuito en desembarque', ancho: 13 },
+          { titulo: 'Fortuito en reposo', ancho: 11 },
+          { titulo: 'Total fortuitos', ancho: 11 },
+          { titulo: 'Estado del lote', ancho: 13 },
+        ],
+        filas,
+        sumar: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      },
+      {
+        nombre: 'Tiquetes',
+        columnas: [
+          { titulo: 'Consecutivo', ancho: 13 },
+          { titulo: 'Orden', ancho: 12 },
+          { titulo: 'Fecha de recepción', ancho: 14 },
+          { titulo: 'Grupo asociado', ancho: 16 },
+          { titulo: 'Asociado', ancho: 30 },
+          { titulo: 'Granja', ancho: 26 },
+          { titulo: 'Origen', ancho: 18 },
+          { titulo: 'Tipo', ancho: 22 },
+          { titulo: 'N.° de animal', ancho: 10 },
+          { titulo: 'Tiquete', ancho: 14 },
+          { titulo: 'Destino', ancho: 18 },
+          { titulo: 'Factura', ancho: 14 },
+          { titulo: 'Estado del tiquete', ancho: 12 },
+        ],
+        filas: detalle,
+      },
+    ])
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `resumen-por-lote-${desde}_a_${hasta}.csv`
+    a.download = `resumen-por-lote-${desde}_a_${hasta}.xlsx`
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -302,7 +367,7 @@ export function ResumenPorLote({
                 <Resumen etiqueta="Lotes" valor={lotesVisibles.length} />
                 <Resumen etiqueta="Cerdos recibidos" valor={totales.cerdos} />
                 <Resumen etiqueta="Novedades (llegada + corral)" valor={totales.novedades} />
-                <Resumen etiqueta="Tiquetes de emergencia" valor={totales.emergencia} />
+                <Resumen etiqueta="Beneficiados de emergencia" valor={totales.emergencia} />
                 <Resumen etiqueta="Fortuitos" valor={totales.fortuitos} />
               </div>
 
@@ -318,10 +383,10 @@ export function ResumenPorLote({
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={descargarCSV}
+                    onClick={descargarExcel}
                     className="rounded-md border border-brand-navy px-3 py-1.5 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint"
                   >
-                    Descargar Excel (CSV)
+                    Descargar Excel
                   </button>
                   <button
                     type="button"
@@ -431,7 +496,8 @@ function TarjetaLote({
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-px bg-slate-100 sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-px bg-slate-100 sm:grid-cols-3 lg:grid-cols-6">
+          <Dato etiqueta="Orden" valor={recepcion.NumeroOrden || '—'} />
           <Dato etiqueta="Fecha de recepción" valor={formatearFecha(recepcion.FechaRecepcion)} />
           <Dato etiqueta="Grupo asociado" valor={grupo} />
           <Dato etiqueta="Asociado" valor={asociado} />
