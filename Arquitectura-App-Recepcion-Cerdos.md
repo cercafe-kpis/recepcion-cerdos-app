@@ -2017,6 +2017,32 @@ Pedido de Nathalia: un informe donde el usuario vea, por cada lote, su detalle c
 - Barra de totales arriba (lotes, cerdos, novedades, tiquetes de emergencia, fortuitos), botón "Descargar imagen" por lote, "Imprimir" (cada tarjeta sin partirse) y "Descargar Excel (CSV)" con una fila por lote (separador `;` y BOM para que Excel en español abra bien).
 - Accesible a todos los perfiles (igual que el resto de Reportes). No cambia datos ni tiquetes: solo lectura.
 
+## Sesión del 2026-10-09 (cuarta parte) — "Volver a generar tiquetes" recreaba un tiquete ya eliminado por otro usuario
+
+Caso (lote 12731): un usuario se equivocó y puso 1 Lesionado; lo eliminó en Consolidado (Eliminar sí restó 1 del conteo en Recepción en SharePoint). Luego la Administradora usó "Volver a generar tiquetes" desde OTRO dispositivo y el tiquete reapareció marcado "De más".
+
+- Causa: `regenerarTiquetes()` en Consolidado.tsx generaba a partir de la Recepción de Dexie de ESE dispositivo. `eliminarFila()` solo copia el conteo nuevo al Dexie del dispositivo que elimina, así que el de la Administradora seguía con Lesionados de emergencia = 1 y recreó el tiquete, aunque SharePoint ya tenía 0 (por eso el detector de "De más", que sí lee SharePoint, lo marcó).
+- Arreglo: `regenerarTiquetes()` ahora primero trae la Recepción fresca con `obtenerRecepcionActual(spId)`, actualiza Dexie con ella (igual que "Actualizar desde SharePoint", sin tocar `id`) y genera desde esos datos. Las novedades de corral ya se leían de SharePoint. Solo cambia `src/features/consolidado/Consolidado.tsx`.
+- Limpieza del lote 12731: botón "Quitar los tiquetes de más" (o "Eliminar" en la fila); como el conteo de origen ya es 0, solo borra la fila.
+
+## Sesión del 2026-10-09 (quinta parte) — Consecutivo único en Recepción y "Agregar fortuito" en Consolidado
+
+Problema: a quien capturó se le olvidó un fortuito y no había cómo agregarlo a un lote ya recepcionado. Decisión de Nathalia: no editar lotes desde el formulario de Recepción (es de captura nueva, con cola offline y choque de consecutivos), sino un botón en Consolidado; y en Recepción, impedir consecutivos repetidos.
+
+- Recepción (`Recepcion.tsx`): `buscarLoteExistente()` revisa el Consecutivo (sin espacios) en Dexie de ese dispositivo y, con internet, en SharePoint (`buscarRecepcionesPorConsecutivo`). Aviso en vivo bajo el campo (espera 500 ms tras la última tecla) y una segunda revisión justo antes de guardar, que bloquea el guardado con un mensaje rojo: "ya fue recepcionado (fecha)… ve a Consolidado y usa Agregar fortuito". Sin internet solo se revisa lo local; la revisión al sincronizar (`existeConsecutivo` + panel "Consecutivos repetidos") sigue como red de seguridad. Si SharePoint no responde, no se bloquea.
+- Consolidado (`Consolidado.tsx`): línea "Fortuitos del lote: en transporte N · en desembarque N · en reposo N" (conteo fresco de SharePoint) visible para todos, y botón "Agregar fortuito" (tipo: muerto en transporte o desembarque + cantidad). Candado = `soloLectura`: cualquier perfil excepto Consultor mientras el lote está "En proceso"; solo Administrador cuando está "Completo". Solo en línea.
+- `guardarFortuito()`: lee la Recepción fresca (`obtenerRecepcionActual`), pide confirmación ("tiene X, se suman N, quedarán X+N"), suma al conteo (`actualizarFortuitosDeRecepcion` en `lists.ts`, pone el indicador en Sí), copia a Dexie, crea los tiquetes que falten con `generarTiquetesFaltantes` (no duplica), y si el lote estaba Completo lo reabre ("En proceso") porque el tiquete nuevo nace vacío. Registra "Fortuito agregado" en RecepcionLog. "Muerto en reposo" no se agrega aquí: sigue en Novedades en Corral.
+- Archivos: `src/features/recepcion/Recepcion.tsx`, `src/features/consolidado/Consolidado.tsx`, `src/graph/lists.ts`.
+
+## Sesión del 2026-10-09 (sexta parte) — "Resumen por lote": exportar a Excel real con novedades sumadas
+
+Pedido de Nathalia: el botón de exportar debe generar un Excel (no CSV) y sumar las novedades (caídos, agitados, lesionados) de llegada + corral.
+
+- `src/utils/crearExcel.ts` (nuevo): genera un .xlsx (ZIP sin comprimir + XML mínimos) SIN librerías nuevas, a propósito: el proyecto se edita solo desde la web de GitHub y una dependencia nueva obliga a regenerar package.json y package-lock.json juntos (riesgo de que `npm ci` falle). Soporta varias hojas, encabezado con color, anchos, panel inmovilizado, autofiltro, fechas reales, y fila TOTAL con fórmulas SUM. Probado abriéndolo con openpyxl y LibreOffice (los totales recalculan bien).
+- `ResumenPorLote.tsx`: "Descargar Excel" (ya no CSV) → `resumen-por-lote-<desde>_a_<hasta>.xlsx`, con 2 hojas: "Resumen por lote" (una fila por lote: consecutivo, fecha, grupo, asociado, granja, # cerdos, Lesionados/Caídos/Agitados = llegada + corral, Total novedades, Beneficiados de emergencia, fortuitos transporte/desembarque/reposo, Total fortuitos, estado, y una fila TOTAL) y "Tiquetes" (una fila por tiquete: origen, tipo, N.°, tiquete, destino, factura, estado).
+- Se agregó la columna "Orden" (Número de orden) justo después de Consecutivo en las 2 hojas del Excel, y el dato "Orden" en la tarjeta de cada lote. El buscador ya la incluía.
+- "Beneficiados de emergencia" = el mayor entre lo capturado (Recepción + corral) y los tiquetes ya generados. La tarjeta superior de la pantalla usa el mismo cálculo (antes se llamaba "Tiquetes de emergencia").
+
 ## Pendiente / a definir con el equipo
 - **Sin diagnosticar todavía**: lotes capturados el 2026-09-28 en un computador distinto al de
   Nathalia no llegaron a aparecer ni en SharePoint ni en los reportes — descartado que fuera por los
