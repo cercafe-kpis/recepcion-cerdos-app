@@ -11,6 +11,7 @@ import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { ReporteDiarioLote } from './ReporteDiarioLote'
 import { ReporteSemanalAsociado } from './ReporteSemanalAsociado'
 import { ReporteCierreDiario } from './ReporteCierreDiario'
+import { ResumenPorLote } from './ResumenPorLote'
 import type { ConsolidadoTiquete, NovedadCorral, Recepcion } from '../../types/models'
 
 function hoyISO() {
@@ -45,15 +46,18 @@ function haceDiasISO(dias: number) {
  *    celda de "N.° animales" para marcar/desmarcar cuáles ya se beneficiaron el mismo día —
  *    reemplaza la práctica manual de pintar esa celda de azul. Ver el comentario de
  *    `BeneficiadoMismoDia` en models.ts y el de ReporteCierreDiario.tsx.
+ *  - "Resumen por lote" (agregada 2026-10-09, a pedido de Nathalia): una tarjeta por cada lote del
+ *    rango de fechas, con grupo asociado, granja, fecha, cantidad de cerdos, novedades, tiquetes de
+ *    beneficiados de emergencia y fortuitos. Ver ResumenPorLote.tsx.
  *
- * Ninguna de las tres pestañas descarga nada en segundo plano ni lo guarda
+ * Ninguna de las pestañas descarga nada en segundo plano ni lo guarda
  * en Dexie: las tres consultan SharePoint directo, solo al tocar "Generar",
  * para no reintroducir el problema de que cada dispositivo vaya
  * acumulando cada vez más historial (igual que descargarRecepcionesEnProceso
  * en syncService.ts, que sigue trayendo solo las recepciones "En proceso").
  */
 export function Reporte() {
-  const [tab, setTab] = useState<'diario' | 'semanal' | 'cierre'>('diario')
+  const [tab, setTab] = useState<'diario' | 'semanal' | 'cierre' | 'resumen'>('diario')
 
   const asociados = useLiveQuery(() => db.asociados.toArray(), []) ?? []
   const granjas = useLiveQuery(() => db.granjas.toArray(), []) ?? []
@@ -68,8 +72,8 @@ export function Reporte() {
     <div>
       <h1 className="text-xl font-semibold text-slate-800 print:hidden">Reporte</h1>
       <p className="mt-1 text-sm text-slate-500 print:hidden">
-        Reporte diario por lote (para enviar al asociado apenas termina una recepción) o informe semanal de
-        novedades en corrales por Grupo Asociado.
+        Reporte diario por lote (para enviar al asociado apenas termina una recepción), informe semanal de
+        novedades en corrales por Grupo Asociado, cierre diario o resumen por lote.
       </p>
 
       <div className="mt-4 flex gap-1 print:hidden">
@@ -103,6 +107,16 @@ export function Reporte() {
         >
           Cierre diario
         </button>
+        <button
+          type="button"
+          onClick={() => setTab('resumen')}
+          className={clsx(
+            'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+            tab === 'resumen' ? 'bg-brand-navy text-white' : 'text-slate-600 hover:bg-brand-navy-tint',
+          )}
+        >
+          Resumen por lote
+        </button>
       </div>
 
       {tab === 'diario' ? (
@@ -114,8 +128,10 @@ export function Reporte() {
           mapaVehiculos={mapaVehiculos}
           gruposAsociados={gruposAsociados}
         />
-      ) : (
+      ) : tab === 'cierre' ? (
         <ReporteCierre mapaAsociados={mapaAsociados} mapaGranjas={mapaGranjas} />
+      ) : (
+        <ResumenPorLote mapaAsociados={mapaAsociados} mapaGranjas={mapaGranjas} gruposAsociados={gruposAsociados} />
       )}
     </div>
   )
