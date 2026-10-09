@@ -863,11 +863,21 @@ export async function existeNovedadCorralDeRecepcion(recepcionSpId: string): Pro
  * Sí/No quedan en Sí si algún registro lo marcó — así el resultado es
  * correcto sin importar en cuántos envíos separados se haya capturado.
  */
-export async function obtenerNovedadCorralDeRecepcion(recepcionSpId: string): Promise<NovedadCorral | undefined> {
-  const items = await listItems<Record<string, unknown>>(
+export async function obtenerNovedadCorralDeRecepcion(
+  recepcionSpId: string,
+  registroRecienGuardado?: NovedadCorral,
+): Promise<NovedadCorral | undefined> {
+  const items: Array<{ id: string; fields: Record<string, unknown> }> = await listItems<Record<string, unknown>>(
     'NovedadesCorral',
     `$expand=fields&$filter=fields/RecepcionId eq '${recepcionSpId.replace(/'/g, "''")}'`,
   )
+  // `registroRecienGuardado`: la lista de SharePoint puede tardar en reflejar un registro que se
+  // acaba de crear. Si quien llama sabe cuál acaba de subir y no aparece todavía, se suma aquí a
+  // mano — así la generación de tiquetes (ver sincronizarNovedadesCorral() en syncService.ts) nunca
+  // se queda corta por un retraso del filtro.
+  if (registroRecienGuardado?.spId && !items.some((i) => i.id === registroRecienGuardado.spId)) {
+    items.push({ id: registroRecienGuardado.spId, fields: registroRecienGuardado as unknown as Record<string, unknown> })
+  }
   if (items.length === 0) return undefined
 
   const numeroOpcional = (valor: unknown) => (valor === undefined || valor === null ? undefined : Number(valor))
@@ -1217,6 +1227,44 @@ export async function decrementarConteoOrigenTiquete(
   if (!elegido) return { accion: 'sin-conteo' }
   await updateItem('NovedadesCorral', elegido.id, calcularCambios(elegido.fields))
   return { accion: 'descontado' }
+}
+
+/**
+ * Tiquetes de MÁS: los que sobran respecto al conteo de origen actual — por ejemplo, cuando alguien
+ * corrige directo en SharePoint la cantidad de una Recepción o Novedad en Corral (de 1 agitado a 0)
+ * pero el tiquete que ya se había generado sigue ahí. Ni "Actualizar desde SharePoint" ni "Volver a
+ * generar tiquetes" lo quitan: la primera solo trae lo que existe en ConsolidadoTiquetes, y la
+ * segunda solo CREA los que falten, nunca borra (Nathalia, 2026-10-08, lote 12653).
+ *
+ * Por cada grupo y tipo se compara cuántos tiquetes hay contra el conteo de origen (el de beneficio
+ * de emergencia para Lesionado/Caído/Agitado — el mismo con el que se generan); los de número más
+ * alto son los que se consideran sobrantes. Solo informa: no borra nada, porque un sobrante puede
+ * tener ya Tiquete/Destino diligenciados y quitarlo debe ser una decisión de una persona.
+ *
+ * `novedadCorral` es la combinación de TODOS los registros del lote (obtenerNovedadCorralDeRecepcion());
+ * `undefined` significa que el lote no tiene ninguno — pero quien llama debe haber CONSULTADO
+ * SharePoint, no pasar `undefined` porque no hubo conexión.
+ */
+export function tiquetesSobrantes(
+  tiquetes: ConsolidadoTiquete[],
+  recepcion: Recepcion,
+  novedadCorral: NovedadCorral | undefined,
+): ConsolidadoTiquete[] {
+  const grupos = new Map<string, ConsolidadoTiquete[]>()
+  for (const t of tiquetes) {
+    const clave = `${t.GrupoNovedad}|${t.TipoNovedad}`
+    grupos.set(clave, [...(grupos.get(clave) ?? []), t])
+  }
+  const sobrantes: ConsolidadoTiquete[] = []
+  for (const delGrupo of grupos.values()) {
+    const origen = origenConteoDeTiquete(delGrupo[0])
+    if (!origen) continue
+    const fuente = (origen.tipo === 'recepcion' ? recepcion : novedadCorral ?? {}) as unknown as Record<string, unknown>
+    const cantidadDeOrigen = Math.max(0, Number(fuente[origen.campo] ?? 0) || 0)
+    const ordenados = [...delGrupo].sort((a, b) => a.NumeroAnimalEnLote - b.NumeroAnimalEnLote)
+    sobrantes.push(...ordenados.slice(cantidadDeOrigen))
+  }
+  return sobrantes
 }
 
 /**
