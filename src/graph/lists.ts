@@ -779,6 +779,24 @@ export async function actualizarFechaDeRecepcion(
   await updateItem('Recepciones', recepcionSpId, cambios)
 }
 
+/**
+ * Actualiza el conteo de fortuitos de transporte/desembarque de una Recepción ya sincronizada
+ * (2026-10-09, a pedido de Nathalia): para cuando a quien capturó se le olvidó un fortuito. Ver
+ * guardarFortuito() en Consolidado.tsx, que calcula el total nuevo a partir del conteo ACTUAL de
+ * SharePoint y luego llama a generarTiquetesFaltantes() para crear el tiquete que falte.
+ */
+export async function actualizarFortuitosDeRecepcion(
+  recepcionSpId: string,
+  cambios: {
+    FortuitoMuertoTransporte?: boolean
+    FortuitoCantMuertoTransporte?: number
+    FortuitoMuertoDesembarque?: boolean
+    FortuitoCantMuertoDesembarque?: number
+  },
+): Promise<void> {
+  await updateItem('Recepciones', recepcionSpId, cambios)
+}
+
 // NOTA HISTÓRICA (2026-09-11, octava ronda): aquí vivió el bloque de LlegadasPendientes
 // (mapFieldsALlegadaPendiente, listarLlegadasPendientesPorFecha, crearLlegadaPendiente,
 // buscarLlegadaPendientePorConsecutivo) — ver el comentario grande de `LlegadaPendiente` en
