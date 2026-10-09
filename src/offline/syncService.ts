@@ -5,11 +5,13 @@ import {
   crearRecepcionEnSharePoint,
   crearUbicacionEnSharePoint,
   existeConsecutivo,
+  existeRecepcionEnSharePoint,
   generarTiquetesFaltantes,
   generarTiquetesNovedadCorral,
   listarAsociados,
   listarGranjas,
   listarGruposAsociados,
+  listarIdsDeRecepciones,
   listarRecepcionesEnProceso,
   listarTiquetesDeRecepcion,
   listarUsuarios,
@@ -102,6 +104,48 @@ export async function descargarRecepcionesEnProceso(): Promise<void> {
   }
 }
 
+/**
+ * Quita de este dispositivo las Recepciones que ya fueron BORRADAS en SharePoint (reportado por
+ * Nathalia el 2026-10-09: borró un lote de prueba de la lista y la app lo seguía mostrando, con todos
+ * sus datos, en los buscadores de Consolidado/Ubicación/Novedades en Corral). Ninguna otra
+ * sincronización lo detectaba: solo se agregaba y actualizaba, nunca se quitaba una Recepción local.
+ *
+ * Solo revisa las que YA se subieron (tienen `spId` y están "Sincronizada") — una captura pendiente de
+ * subir no existe todavía en SharePoint y nunca se toca. Para no borrar por error: primero se compara
+ * contra la lista de ids de SharePoint, y cada ausente se confirma individualmente (un 404 de verdad)
+ * antes de borrarlo, así una lista truncada o una falla pasajera nunca elimina nada local.
+ *
+ * Al quitar una Recepción también se quitan sus Ubicaciones, Novedades en Corral y tiquetes locales:
+ * sin su padre ya no sirven para nada (y las pendientes de subir nunca podrían subirse).
+ *
+ * Devuelve cuántas Recepciones quitó. No lanza: es mantenimiento y no debe frenar la sincronización.
+ */
+export async function limpiarRecepcionesBorradas(): Promise<number> {
+  try {
+    const candidatas = (await db.recepciones.toArray()).filter((r) => r.spId && r.EstadoSync === 'Sincronizada')
+    if (candidatas.length === 0) return 0
+
+    const idsEnSharePoint = await listarIdsDeRecepciones()
+    let quitadas = 0
+    for (const rec of candidatas) {
+      const spId = rec.spId as string
+      if (idsEnSharePoint.has(spId)) continue
+      if (await existeRecepcionEnSharePoint(spId)) continue // solo faltaba en la lista (truncada)
+
+      await db.transaction('rw', db.recepciones, db.ubicaciones, db.novedadesCorral, db.consolidadoTiquetes, async () => {
+        await db.ubicaciones.where('RecepcionId').equals(rec.id).delete()
+        await db.novedadesCorral.where('RecepcionId').equals(rec.id).delete()
+        await db.consolidadoTiquetes.where('RecepcionId').equals(spId).delete()
+        await db.recepciones.delete(rec.id)
+      })
+      quitadas++
+    }
+    return quitadas
+  } catch {
+    return 0 // sin conexión o sin sesión: se reintenta en la próxima sincronización
+  }
+}
+
 export interface ResultadoSync {
   recepcionesSubidas: number
   ubicacionesSubidas: number
@@ -186,6 +230,8 @@ async function sincronizarUnaVez(usuarioActual: string): Promise<ResultadoSync> 
   } catch (err) {
     resultado.errores.push(`No se pudieron traer las Recepciones en proceso de otros dispositivos: ${(err as Error).message}`)
   }
+
+  await limpiarRecepcionesBorradas()
 
   // Antes, un error de sincronización (por ejemplo, que Graph rechace crear
   // un ConsolidadoTiquetes por faltarle una columna obligatoria) solo quedaba
