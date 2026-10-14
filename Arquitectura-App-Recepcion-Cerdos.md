@@ -2043,6 +2043,71 @@ Pedido de Nathalia: el botón de exportar debe generar un Excel (no CSV) y sumar
 - Se agregó la columna "Orden" (Número de orden) justo después de Consecutivo en las 2 hojas del Excel, y el dato "Orden" en la tarjeta de cada lote. El buscador ya la incluía.
 - "Beneficiados de emergencia" = el mayor entre lo capturado (Recepción + corral) y los tiquetes ya generados. La tarjeta superior de la pantalla usa el mismo cálculo (antes se llamaba "Tiquetes de emergencia").
 
+## Sesión del 2026-10-13 — Nuevo módulo "Calibración báscula" + reporte
+
+Pedido de Nathalia: digitalizar el "Formato de verificación básculas" en papel (Báscula Frigotun, pesa
+patrón 50 kg, EMP ±0,05 kg, 3 mediciones diarias, Error, Realizó, Verificó, Observaciones) y un reporte
+nuevo con las mediciones y el error en kg por fecha.
+
+- **Quién verifica** (decisión de Nathalia): el usuario con sesión iniciada es quien VERIFICA (queda
+  automático, `Verifico` + `VerificoCorreo`) y escribe en el formulario quién REALIZÓ la medición
+  (`Realizo`, texto libre con sugerencias de la lista de Usuarios).
+- Supuestos tomados por defecto (Nathalia no los respondió; confirmar si cambian): básculas en lista
+  maestra administrable (`Basculas`, pestaña "Básculas" en Asociados); **una verificación por báscula
+  por día** (se revisa en Dexie siempre y en SharePoint con conexión; si ya existe, no deja guardar);
+  para corregir, el Administrador activa "Modo corrección" en el reporte y elimina la verificación, y
+  se vuelve a registrar.
+- **Cálculo** (`src/utils/calibracion.ts`): Promedio = (M1+M2+M3)/3; Error = Pesa patrón − Promedio, en
+  kg (la fórmula del pedido decía "(g)", se usó kg porque la pesa y el EMP están en kg); Conforme si
+  |Error| ≤ EMP, comparando ya redondeado a 3 decimales (un error de exactamente 0,050 queda Conforme).
+  Si sale No conforme, Observaciones pasa a ser obligatoria.
+- **Pantalla** `src/features/calibracion/CalibracionBascula.tsx`, ruta `/calibracion-bascula`, botón
+  "Calibración báscula" en la barra (Administrador/Supervisor/Auditor; Consultor no lo ve). Funciona
+  sin conexión: Dexie v4 (tablas `basculas` y `calibracionesBascula`) + `sincronizarCalibraciones()` en
+  `syncService.ts`; cuenta en el badge de pendientes. Cada verificación guarda COPIA del nombre, pesa
+  patrón y EMP de la báscula (la evidencia no cambia si se edita la maestra).
+- `descargarBasculas()` va APARTE de `descargarMaestros()` a propósito: si la lista `Basculas` aún no
+  existe en SharePoint, no debe tumbar la descarga de Asociados/Granjas/Vehículos.
+- **Reporte** → pestaña "Calibración báscula" (`ReporteCalibracionBascula.tsx`): rango (últimos 30 días
+  por defecto) y báscula; indicadores (verificaciones, conformes, no conformes, error máximo); gráfica
+  del error por fecha (recharts, banda verde ±EMP, puntos No conforme en rojo, eje en múltiplos del
+  EMP; una gráfica por báscula); tabla con fecha/día, M1–M3, promedio, error, EMP, resultado, realizó,
+  verificó, y observaciones; descarga imagen, PDF y Excel. Consulta SharePoint directo (lo pendiente de
+  sincronizar no aparece). `Reporte` ahora recibe `usuario` opcional (solo para el modo corrección).
+- **Listas nuevas en SharePoint (paso manual)**: `Basculas` (Title, PesaPatronKg, EMPKg, Activa) y
+  `CalibracionesBascula` (Title, FechaCalibracion, BasculaId, BasculaNombre, PesaPatronKg, EMPKg,
+  Medicion1-3, PromedioKg, ErrorKg, Resultado, Realizo, Verifico, VerificoCorreo, Observaciones,
+  CapturadaEn, RecibidaEn) — tipos en el README del repo. Todos los nombres < 32 caracteres; BasculaId
+  y Resultado son texto (no Lookup/Elección) para evitar los problemas de columnas ya vistos.
+- 15 archivos (4 nuevos) — subir JUNTOS: `README.md`, `src/App.tsx`, `src/components/Navbar.tsx`,
+  `src/features/catalogos/CatalogosAdmin.tsx`, `src/features/catalogos/BasculasAdmin.tsx` (nuevo),
+  `src/features/reportes/Reporte.tsx`, `src/features/reportes/ReporteCalibracionBascula.tsx` (nuevo),
+  `src/features/calibracion/CalibracionBascula.tsx` (nuevo), `src/graph/client.ts`, `src/graph/lists.ts`,
+  `src/offline/db.ts`, `src/offline/syncService.ts`, `src/offline/useEstadoSync.ts`, `src/types/models.ts`,
+  `src/utils/calibracion.ts` (nuevo).
+- Verificado: `tsc -b --noEmit`, `oxlint` (solo advertencias del mismo tipo que ya existían) y
+  `npm run build`; cálculo probado con casos límite; formulario y reporte renderizados con datos de
+  prueba en escritorio y celular, incluida la regla de una verificación por día.
+- Pendiente: el ambiente de pruebas (otro sitio de SharePoint + segunda publicación + Dexie con otro
+  nombre) se conversó el mismo día y Nathalia lo dejó para después.
+
+### Ampliación 2026-10-14 — "Realizó" pasa a ser lista con buscador de operarios
+- Pedido de Nathalia: "Realizó" debe elegirse de una tabla de operarios de Frigotún creada antes, con
+  búsqueda. Nueva lista maestra **`Operarios`** en SharePoint (Title + Activo Sí/No), pestaña
+  "Operarios" en Asociados (`OperariosAdmin.tsx`), Dexie v5 (`operarios`), `descargarOperarios()` aparte
+  de `descargarMaestros()` (mismo criterio que básculas: si la lista no existe, no rompe nada).
+- `src/components/CampoBuscable.tsx` (nuevo, reutilizable): escribir filtra sin importar tildes ni
+  mayúsculas ("nunez" encuentra "José Núñez"), ↑/↓/Enter/Esc, solo acepta un nombre de la lista (lo
+  que no coincida se borra al salir del campo). Solo muestra operarios activos.
+- En `CalibracionesBascula` NO cambió ninguna columna: `Realizo` sigue guardando el NOMBRE del operario
+  (texto), así las verificaciones viejas siguen igual y desactivar un operario no borra su nombre.
+- 11 archivos: README.md, src/App.tsx, src/types/models.ts, src/graph/client.ts, src/graph/lists.ts,
+  src/offline/db.ts, src/offline/syncService.ts, src/features/catalogos/CatalogosAdmin.tsx,
+  src/features/catalogos/OperariosAdmin.tsx (nuevo), src/features/calibracion/CalibracionBascula.tsx,
+  src/components/CampoBuscable.tsx (nuevo). Incluyen también lo de la ronda del 13/10 en esos mismos
+  archivos. Verificado con tsc, oxlint, build y prueba en navegador (filtro, Enter, texto libre borrado,
+  guardado con el nombre).
+
 ## Pendiente / a definir con el equipo
 - **Sin diagnosticar todavía**: lotes capturados el 2026-09-28 en un computador distinto al de
   Nathalia no llegaron a aparecer ni en SharePoint ni en los reportes — descartado que fuera por los
