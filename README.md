@@ -45,6 +45,14 @@ cada columna (sin tildes ni espacios): ese es el nombre interno que usa la app.
 | `Observaciones` | Varias líneas de texto |
 | `CapturadaEn`, `RecibidaEn` | Fecha y hora (con hora) |
 
+**`Operarios`** (maestra — se administra en Asociados → Operarios; son los nombres del campo
+"Realizó"):
+
+| Columna | Tipo |
+|---|---|
+| `Title` | (viene por defecto) nombre completo del operario |
+| `Activo` | Sí/No (predeterminado Sí) |
+
 Después de crear `Basculas`, agrega "Báscula Frigotun · 50 · 0,05" desde Asociados → Básculas.
 
 ## Configuración local
