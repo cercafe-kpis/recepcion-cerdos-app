@@ -1,6 +1,8 @@
 import Dexie, { type Table } from 'dexie'
 import type {
   Asociado,
+  Bascula,
+  CalibracionBascula,
   ConsolidadoTiquete,
   Granja,
   GrupoAsociado,
@@ -42,6 +44,10 @@ export class RecepcionCerdosDB extends Dexie {
   novedadesCorral!: Table<NovedadCorral, string>
   consolidadoTiquetes!: Table<ConsolidadoTiquete, string>
 
+  /** Calibración de básculas (v4): maestra de básculas + cola de verificaciones diarias. */
+  basculas!: Table<Bascula, string>
+  calibracionesBascula!: Table<CalibracionBascula, string>
+
   /** Metadatos internos — hoy solo la fecha del último descargarMaestros(). */
   meta!: Table<{ clave: string; valor: string }, string>
 
@@ -82,6 +88,14 @@ export class RecepcionCerdosDB extends Dexie {
     this.version(3).stores({
       gruposAsociados: 'id, Activo',
     })
+
+    // v4 (2026-10-13): calibración de básculas — maestra `basculas` y la cola transaccional
+    // `calibracionesBascula` (mismo patrón offline que recepciones/ubicaciones). Dexie migra solo,
+    // sin perder datos, cualquier dispositivo que ya tuviera la base local en v1–v3.
+    this.version(4).stores({
+      basculas: 'id, Activa',
+      calibracionesBascula: 'id, spId, EstadoSync, FechaCalibracion, BasculaId',
+    })
   }
 }
 
@@ -89,13 +103,14 @@ export const db = new RecepcionCerdosDB()
 
 /** Cuántos registros de este dispositivo siguen sin subir — para el badge de la barra superior. */
 export async function contarPendientes(): Promise<number> {
-  const [r, u, n, c] = await Promise.all([
+  const [r, u, n, c, cal] = await Promise.all([
     db.recepciones.where('EstadoSync').equals('Pendiente').count(),
     db.ubicaciones.where('EstadoSync').equals('Pendiente').count(),
     db.novedadesCorral.where('EstadoSync').equals('Pendiente').count(),
     db.consolidadoTiquetes.where('EstadoSync').equals('Pendiente').count(),
+    db.calibracionesBascula.where('EstadoSync').equals('Pendiente').count(),
   ])
-  return r + u + n + c
+  return r + u + n + c + cal
 }
 
 /** Igual que arriba, pero solo los que necesitan revisión de un Administrador (choque de Consecutivo). */
