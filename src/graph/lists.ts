@@ -4,6 +4,7 @@ import type {
   Asociado,
   Bascula,
   CalibracionBascula,
+  Operario,
   ConsolidadoTiquete,
   Granja,
   GrupoAsociado,
@@ -1541,4 +1542,31 @@ export async function buscarCalibracionDelDia(basculaId: string, fecha: string):
 
 export async function eliminarCalibracion(spId: string): Promise<void> {
   await deleteItem('CalibracionesBascula', spId)
+}
+
+// ---------------------------------------------------------------------------
+// Operarios de Frigotún (2026-10-14): maestra simple (Title + Activo, mismo patrón que
+// GruposAsociados) para el campo "Realizó" de la calibración de básculas.
+// ---------------------------------------------------------------------------
+
+export async function listarOperarios(): Promise<Operario[]> {
+  const items = await listItems<Record<string, unknown>>('Operarios', '$expand=fields&$top=999')
+  return items.map((item) => ({
+    id: item.id,
+    Title: String(item.fields.Title ?? ''),
+    Activo: Boolean(item.fields.Activo ?? true),
+  }))
+}
+
+export async function crearOperario(input: { Title: string }): Promise<Operario> {
+  const item = await createItem('Operarios', { Title: input.Title, Activo: true })
+  return { id: item.id, Title: input.Title, Activo: true }
+}
+
+export async function actualizarOperario(id: string, cambios: Partial<Pick<Operario, 'Title' | 'Activo'>>): Promise<void> {
+  await updateItem('Operarios', id, cambios)
+}
+
+export async function eliminarOperario(id: string): Promise<void> {
+  await deleteItem('Operarios', id)
 }
