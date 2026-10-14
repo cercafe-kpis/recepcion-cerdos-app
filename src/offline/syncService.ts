@@ -3,6 +3,7 @@ import {
   actualizarTiquete,
   crearCalibracionEnSharePoint,
   listarBasculas,
+  listarOperarios,
   crearNovedadCorralEnSharePoint,
   crearRecepcionEnSharePoint,
   crearUbicacionEnSharePoint,
@@ -73,6 +74,19 @@ export async function descargarBasculas(): Promise<void> {
     })
   } catch {
     // Lista aún no creada o sin conexión: la pantalla de calibración avisa si no hay básculas.
+  }
+}
+
+/** Operarios de Frigotún (2026-10-14) — mismo criterio que descargarBasculas(): aparte y sin lanzar. */
+export async function descargarOperarios(): Promise<void> {
+  try {
+    const operarios = await listarOperarios()
+    await db.transaction('rw', db.operarios, async () => {
+      await db.operarios.clear()
+      await db.operarios.bulkPut(operarios)
+    })
+  } catch {
+    // Lista aún no creada o sin conexión: la pantalla de calibración avisa si no hay operarios.
   }
 }
 
