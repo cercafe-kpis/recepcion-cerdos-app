@@ -2,6 +2,8 @@ import { createItem, deleteItem, getItem, listItems, updateItem } from './client
 import { resumenDeCampos, type ResumenNovedadCorral } from '../utils/resumenNovedades'
 import type {
   Asociado,
+  Bascula,
+  CalibracionBascula,
   ConsolidadoTiquete,
   Granja,
   GrupoAsociado,
@@ -1432,4 +1434,111 @@ export async function generarTiquetesNovedadCorral(
       })
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Calibración de básculas (2026-10-13, a pedido de Nathalia). Dos listas nuevas en SharePoint:
+//  - `Basculas` (maestra): Title, PesaPatronKg (Número), EMPKg (Número), Activa (Sí/No).
+//  - `CalibracionesBascula` (transaccional): ver mapFieldsACalibracion() abajo. BasculaId se guarda
+//    como TEXTO (igual que RecepcionId en Ubicaciones/NovedadesCorral), no como Lookup, y todos los
+//    nombres internos tienen menos de 32 caracteres para no repetir el incidente de truncamiento
+//    del 2026-09-09.
+// ---------------------------------------------------------------------------
+
+function mapFieldsABascula(item: { id: string; fields: Record<string, unknown> }): Bascula {
+  return {
+    id: item.id,
+    Title: String(item.fields.Title ?? ''),
+    PesaPatronKg: Number(item.fields.PesaPatronKg ?? 0),
+    EMPKg: Number(item.fields.EMPKg ?? 0),
+    Activa: Boolean(item.fields.Activa ?? true),
+  }
+}
+
+export async function listarBasculas(): Promise<Bascula[]> {
+  const items = await listItems<Record<string, unknown>>('Basculas')
+  return items.map(mapFieldsABascula)
+}
+
+export async function crearBascula(input: { Title: string; PesaPatronKg: number; EMPKg: number }): Promise<Bascula> {
+  const item = await createItem('Basculas', { ...input, Activa: true })
+  return { id: item.id, ...input, Activa: true }
+}
+
+export async function actualizarBascula(
+  id: string,
+  cambios: Partial<Pick<Bascula, 'Title' | 'PesaPatronKg' | 'EMPKg' | 'Activa'>>,
+): Promise<void> {
+  await updateItem('Basculas', id, cambios)
+}
+
+export async function eliminarBascula(id: string): Promise<void> {
+  await deleteItem('Basculas', id)
+}
+
+function mapFieldsACalibracion(item: { id: string; fields: Record<string, unknown> }): CalibracionBascula {
+  const f = item.fields
+  return {
+    id: item.id,
+    spId: item.id,
+    Title: String(f.Title ?? ''),
+    // Columna "Fecha y hora" de SharePoint: Graph la devuelve con hora ("2026-10-13T05:00:00Z") —
+    // se corta a la fecha simple, mismo arreglo que FechaRecepcion en mapFieldsARecepcion().
+    FechaCalibracion: String(f.FechaCalibracion ?? '').slice(0, 10),
+    BasculaId: String(f.BasculaId ?? ''),
+    BasculaNombre: String(f.BasculaNombre ?? ''),
+    PesaPatronKg: Number(f.PesaPatronKg ?? 0),
+    EMPKg: Number(f.EMPKg ?? 0),
+    Medicion1: Number(f.Medicion1 ?? 0),
+    Medicion2: Number(f.Medicion2 ?? 0),
+    Medicion3: Number(f.Medicion3 ?? 0),
+    PromedioKg: Number(f.PromedioKg ?? 0),
+    ErrorKg: Number(f.ErrorKg ?? 0),
+    Resultado: f.Resultado === 'No conforme' ? 'No conforme' : 'Conforme',
+    Realizo: String(f.Realizo ?? ''),
+    Verifico: String(f.Verifico ?? ''),
+    VerificoCorreo: String(f.VerificoCorreo ?? ''),
+    Observaciones: f.Observaciones ? String(f.Observaciones) : undefined,
+    CapturadaEn: String(f.CapturadaEn ?? ''),
+    RecibidaEn: f.RecibidaEn ? String(f.RecibidaEn) : undefined,
+    EstadoSync: 'Sincronizada',
+  }
+}
+
+export async function crearCalibracionEnSharePoint(
+  calibracion: Omit<CalibracionBascula, 'id' | 'spId' | 'RecibidaEn' | 'EstadoSync'>,
+): Promise<{ spId: string; RecibidaEn: string }> {
+  const RecibidaEn = new Date().toISOString()
+  const { Observaciones, ...resto } = calibracion
+  const item = await createItem('CalibracionesBascula', {
+    ...resto,
+    ...(Observaciones ? { Observaciones } : {}),
+    RecibidaEn,
+  })
+  return { spId: item.id, RecibidaEn }
+}
+
+/** Rango [desde 00:00Z, hasta+1 00:00Z) — mismo criterio que listarRecepcionesPorRangoFecha(). */
+function filtroRangoFecha(campo: string, desde: string, hasta: string): string {
+  const hastaFecha = new Date(`${hasta}T00:00:00Z`)
+  hastaFecha.setUTCDate(hastaFecha.getUTCDate() + 1)
+  return `fields/${campo} ge '${desde}T00:00:00Z' and fields/${campo} lt '${hastaFecha.toISOString()}'`
+}
+
+export async function listarCalibracionesPorRangoFecha(desde: string, hasta: string): Promise<CalibracionBascula[]> {
+  const items = await listItems<Record<string, unknown>>(
+    'CalibracionesBascula',
+    `$expand=fields&$filter=${filtroRangoFecha('FechaCalibracion', desde, hasta)}&$top=999`,
+  )
+  return items.map(mapFieldsACalibracion)
+}
+
+/** ¿Ya hay una verificación de esta báscula en esa fecha en SharePoint? (regla: una por día). */
+export async function buscarCalibracionDelDia(basculaId: string, fecha: string): Promise<CalibracionBascula | undefined> {
+  const delDia = await listarCalibracionesPorRangoFecha(fecha, fecha)
+  return delDia.find((c) => c.BasculaId === basculaId)
+}
+
+export async function eliminarCalibracion(spId: string): Promise<void> {
+  await deleteItem('CalibracionesBascula', spId)
 }
