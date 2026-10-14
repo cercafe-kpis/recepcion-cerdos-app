@@ -1,6 +1,8 @@
 import { db } from './db'
 import {
   actualizarTiquete,
+  crearCalibracionEnSharePoint,
+  listarBasculas,
   crearNovedadCorralEnSharePoint,
   crearRecepcionEnSharePoint,
   crearUbicacionEnSharePoint,
@@ -54,6 +56,24 @@ export async function descargarMaestros(): Promise<void> {
       await db.meta.put({ clave: 'maestrosActualizadosEn', valor: new Date().toISOString() })
     },
   )
+}
+
+/**
+ * Maestra de básculas (calibración, 2026-10-13). Va APARTE de descargarMaestros() a propósito: si la
+ * lista `Basculas` todavía no se ha creado en SharePoint, su error no debe tumbar la descarga de
+ * Asociados/Granjas/Vehículos (que van en un mismo Promise.all). Si falla, se deja la copia local
+ * como estaba.
+ */
+export async function descargarBasculas(): Promise<void> {
+  try {
+    const basculas = await listarBasculas()
+    await db.transaction('rw', db.basculas, async () => {
+      await db.basculas.clear()
+      await db.basculas.bulkPut(basculas)
+    })
+  } catch {
+    // Lista aún no creada o sin conexión: la pantalla de calibración avisa si no hay básculas.
+  }
 }
 
 /**
@@ -151,6 +171,7 @@ export interface ResultadoSync {
   ubicacionesSubidas: number
   novedadesSubidas: number
   tiquetesSubidos: number
+  calibracionesSubidas: number
   conflictosConsecutivo: number
   errores: string[]
 }
@@ -216,6 +237,7 @@ async function sincronizarUnaVez(usuarioActual: string): Promise<ResultadoSync> 
     ubicacionesSubidas: 0,
     novedadesSubidas: 0,
     tiquetesSubidos: 0,
+    calibracionesSubidas: 0,
     conflictosConsecutivo: 0,
     errores: [],
   }
@@ -224,6 +246,7 @@ async function sincronizarUnaVez(usuarioActual: string): Promise<ResultadoSync> 
   await sincronizarUbicaciones(resultado)
   await sincronizarNovedadesCorral(resultado)
   await sincronizarTiquetesPendientes(resultado)
+  await sincronizarCalibraciones(resultado)
 
   try {
     await descargarRecepcionesEnProceso()
@@ -354,6 +377,27 @@ async function sincronizarUbicaciones(resultado: ResultadoSync): Promise<void> {
       resultado.ubicacionesSubidas++
     } catch (err) {
       resultado.errores.push(`Ubicación ${ubic.id}: ${(err as Error).message}`)
+    }
+  }
+}
+
+/**
+ * Calibraciones de báscula (2026-10-13): no dependen de ninguna Recepción, así que se suben solas,
+ * sin esperar un spId de padre. Misma doble protección contra subir dos veces que el resto
+ * (cola de sincronizar() + sigueSiendoPendiente()).
+ */
+async function sincronizarCalibraciones(resultado: ResultadoSync): Promise<void> {
+  const pendientes = await db.calibracionesBascula.where('EstadoSync').equals('Pendiente').toArray()
+
+  for (const cal of pendientes) {
+    try {
+      if (!(await sigueSiendoPendiente(db.calibracionesBascula, cal.id))) continue
+      const { id: _id, spId: _spId, RecibidaEn: _RecibidaEn, EstadoSync: _EstadoSync, ...campos } = cal
+      const { spId, RecibidaEn } = await crearCalibracionEnSharePoint(campos)
+      await db.calibracionesBascula.update(cal.id, { spId, RecibidaEn, EstadoSync: 'Sincronizada' })
+      resultado.calibracionesSubidas++
+    } catch (err) {
+      resultado.errores.push(`Calibración de báscula ${cal.FechaCalibracion} (${cal.BasculaNombre}): ${(err as Error).message}`)
     }
   }
 }
