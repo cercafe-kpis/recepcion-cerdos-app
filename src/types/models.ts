@@ -258,3 +258,54 @@ export interface RecepcionLogEntry {
   DetalleJson: string
   CreadoEn: string
 }
+
+// ---------------------------------------------------------------------------
+// Calibración de básculas (agregado 2026-10-13, a pedido de Nathalia) — digitaliza el "Formato de
+// verificación básculas" en papel: cada día se pesa la pesa patrón 3 veces, se calcula el error y
+// se compara contra el EMP (error máximo permitido). Ver CalibracionBascula.tsx y
+// ReporteCalibracionBascula.tsx.
+// ---------------------------------------------------------------------------
+
+/** Maestra (lista `Basculas`): cada báscula que se verifica, con su pesa patrón y su EMP. */
+export interface Bascula {
+  id: string
+  Title: string
+  /** Peso de la pesa patrón en kg (hoy 50). */
+  PesaPatronKg: number
+  /** Error máximo permitido, ± kg (hoy 0,05). */
+  EMPKg: number
+  Activa: boolean
+}
+
+export type ResultadoCalibracion = 'Conforme' | 'No conforme'
+
+/**
+ * Transaccional (lista `CalibracionesBascula`): una verificación diaria. Se captura sin conexión
+ * igual que las demás (Dexie + cola de sincronización). Guarda una COPIA del nombre, la pesa
+ * patrón y el EMP de la báscula en el momento de la medición — a propósito, para que la evidencia
+ * no cambie si después alguien edita la báscula en la maestra.
+ */
+export interface CalibracionBascula extends CapturaOffline {
+  id: string
+  Title: string
+  /** "YYYY-MM-DD". */
+  FechaCalibracion: string
+  BasculaId: string
+  BasculaNombre: string
+  PesaPatronKg: number
+  EMPKg: number
+  Medicion1: number
+  Medicion2: number
+  Medicion3: number
+  /** Promedio de las 3 mediciones, kg. */
+  PromedioKg: number
+  /** Pesa patrón − promedio, kg. */
+  ErrorKg: number
+  Resultado: ResultadoCalibracion
+  /** Nombre de quien hizo la medición (lo escribe el verificador). */
+  Realizo: string
+  /** Usuario con sesión iniciada que guardó y verificó. */
+  Verifico: string
+  VerificoCorreo: string
+  Observaciones?: string
+}
