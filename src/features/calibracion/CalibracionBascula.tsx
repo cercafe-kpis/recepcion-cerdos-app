@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import clsx from 'clsx'
 import { db } from '../../offline/db'
-import { descargarBasculas, sincronizar } from '../../offline/syncService'
+import { descargarBasculas, descargarOperarios, sincronizar } from '../../offline/syncService'
 import { buscarCalibracionDelDia } from '../../graph/lists'
 import { CampoSelect, CampoTexto, SeccionFormulario } from '../../components/CamposFormulario'
+import { CampoBuscable } from '../../components/CampoBuscable'
 import { calcularCalibracion, diaDeLaSemana, formatoErrorKg, formatoKg } from '../../utils/calibracion'
 import type { CalibracionBascula as CalibracionModelo, Usuario } from '../../types/models'
 
@@ -40,14 +41,16 @@ function aNumero(texto: string): number | undefined {
 export function CalibracionBascula({ usuario }: { usuario: Usuario }) {
   const basculas = useLiveQuery(() => db.basculas.toArray(), [])
   const basculasActivas = useMemo(() => (basculas ?? []).filter((b) => b.Activa), [basculas])
-  const usuarios = useLiveQuery(() => db.usuarios.toArray(), []) ?? []
+  const operarios = useLiveQuery(() => db.operarios.toArray(), [])
+  const operariosActivos = useMemo(() => (operarios ?? []).filter((o) => o.Activo), [operarios])
   const recientes =
     useLiveQuery(() => db.calibracionesBascula.orderBy('FechaCalibracion').reverse().limit(10).toArray(), []) ?? []
 
   const [basculaId, setBasculaId] = useState('')
   const [fecha, setFecha] = useState(hoyISO())
   const [mediciones, setMediciones] = useState<[string, string, string]>(['', '', ''])
-  const [realizo, setRealizo] = useState('')
+  /** id del operario elegido en "Realizó" (de la maestra Operarios). */
+  const [realizoId, setRealizoId] = useState('')
   const [observaciones, setObservaciones] = useState('')
   const [errores, setErrores] = useState<Record<string, string>>({})
   const [mensaje, setMensaje] = useState<string>()
@@ -58,6 +61,11 @@ export function CalibracionBascula({ usuario }: { usuario: Usuario }) {
   useEffect(() => {
     if (basculas && basculas.length === 0 && navigator.onLine) void descargarBasculas()
   }, [basculas])
+  useEffect(() => {
+    if (operarios && operarios.length === 0 && navigator.onLine) void descargarOperarios()
+  }, [operarios])
+
+  const operarioElegido = operariosActivos.find((o) => o.id === realizoId)
 
   // Con una sola báscula activa (el caso de hoy: Frigotun) queda elegida de una vez.
   const basculaElegida = basculaId || (basculasActivas.length === 1 ? basculasActivas[0].id : '')
@@ -81,7 +89,7 @@ export function CalibracionBascula({ usuario }: { usuario: Usuario }) {
     numeros.forEach((n, i) => {
       if (n === undefined || n <= 0) e[`m${i}`] = 'Escribe un peso mayor a 0'
     })
-    if (!realizo.trim()) e.realizo = 'Escribe quién realizó la medición'
+    if (!operarioElegido) e.realizo = 'Elige de la lista el operario que realizó la medición'
     if (calculo?.resultado === 'No conforme' && !observaciones.trim()) {
       e.observaciones = 'El resultado es No conforme: explica qué pasó y qué acción se tomó'
     }
@@ -93,7 +101,7 @@ export function CalibracionBascula({ usuario }: { usuario: Usuario }) {
     setErrorGeneral(undefined)
     const e = validar()
     setErrores(e)
-    if (Object.keys(e).length > 0 || !bascula || !calculo) return
+    if (Object.keys(e).length > 0 || !bascula || !calculo || !operarioElegido) return
 
     setGuardando(true)
     try {
@@ -136,7 +144,7 @@ export function CalibracionBascula({ usuario }: { usuario: Usuario }) {
         PromedioKg: calculo.promedioKg,
         ErrorKg: calculo.errorKg,
         Resultado: calculo.resultado,
-        Realizo: realizo.trim(),
+        Realizo: operarioElegido.Title,
         Verifico: usuario.Title,
         VerificoCorreo: usuario.Correo,
         Observaciones: observaciones.trim() || undefined,
@@ -146,7 +154,7 @@ export function CalibracionBascula({ usuario }: { usuario: Usuario }) {
       await db.calibracionesBascula.put(registro)
 
       setMediciones(['', '', ''])
-      setRealizo('')
+      setRealizoId('')
       setObservaciones('')
       setFecha(hoyISO())
       setErrores({})
@@ -264,20 +272,23 @@ export function CalibracionBascula({ usuario }: { usuario: Usuario }) {
 
         <SeccionFormulario titulo="Responsables">
           <div>
-            <CampoTexto
+            <CampoBuscable
               etiqueta="Realizó"
               requerido
-              list="calibracion-personas"
-              placeholder="Nombre de quien hizo la medición"
-              value={realizo}
-              onChange={(e) => setRealizo(e.target.value)}
+              placeholder="Escribe para buscar el operario…"
+              textoSinOpciones="No hay operarios registrados"
+              opciones={operariosActivos.map((o) => ({ value: o.id, label: o.Title }))}
+              value={realizoId}
+              onChange={setRealizoId}
               error={errores.realizo}
             />
-            <datalist id="calibracion-personas">
-              {usuarios.map((u) => (
-                <option key={u.id} value={u.Title} />
-              ))}
-            </datalist>
+            {operarios !== undefined && operariosActivos.length === 0 && (
+              <p className="mt-1 text-xs text-amber-700">
+                {usuario.Rol === 'Administrador'
+                  ? 'Agrega los operarios en Asociados → Operarios (con conexión).'
+                  : 'Pídele a un Administrador que registre los operarios, y abre esta pantalla con conexión.'}
+              </p>
+            )}
           </div>
           <div className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
             <span className="block text-xs text-slate-400">Verificó (tu usuario)</span>
