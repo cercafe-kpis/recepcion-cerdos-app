@@ -12,7 +12,8 @@ import { Consolidado } from './features/consolidado/Consolidado'
 import { Reporte } from './features/reportes/Reporte'
 import { CatalogosAdmin } from './features/catalogos/CatalogosAdmin'
 import { useCurrentUser } from './auth/useCurrentUser'
-import { descargarMaestros, descargarRecepcionesEnProceso, sincronizar } from './offline/syncService'
+import { descargarBasculas, descargarMaestros, descargarRecepcionesEnProceso, sincronizar } from './offline/syncService'
+import { CalibracionBascula } from './features/calibracion/CalibracionBascula'
 
 /** Cada cuánto se revisa solo, en segundo plano, si hay novedades de otros dispositivos. */
 const INTERVALO_AUTO_SYNC_MS = 2 * 60 * 1000
@@ -43,6 +44,7 @@ function AppAutenticada() {
   useEffect(() => {
     if (usuario && navigator.onLine) {
       void descargarMaestros()
+      void descargarBasculas()
       void descargarRecepcionesEnProceso()
     }
   }, [usuario])
@@ -144,8 +146,16 @@ function AppAutenticada() {
             }
           />
           <Route path="/consolidado" element={<Consolidado usuario={usuario} />} />
+          <Route
+            path="/calibracion-bascula"
+            element={
+              <ProtegidoPorRol usuario={usuario} permitido={['Administrador', 'Supervisor', 'Auditor']}>
+                <CalibracionBascula usuario={usuario} />
+              </ProtegidoPorRol>
+            }
+          />
           {/* Sin ProtegidoPorRol a propósito: "todos los perfiles pueden tener acceso a este reporte" (pedido explícito del usuario). */}
-          <Route path="/reporte" element={<Reporte />} />
+          <Route path="/reporte" element={<Reporte usuario={usuario} />} />
           <Route
             path="/admin/asociados"
             element={
