@@ -12,7 +12,7 @@ import { Consolidado } from './features/consolidado/Consolidado'
 import { Reporte } from './features/reportes/Reporte'
 import { CatalogosAdmin } from './features/catalogos/CatalogosAdmin'
 import { useCurrentUser } from './auth/useCurrentUser'
-import { descargarBasculas, descargarMaestros, descargarRecepcionesEnProceso, sincronizar } from './offline/syncService'
+import { descargarBasculas, descargarMaestros, descargarOperarios, descargarRecepcionesEnProceso, sincronizar } from './offline/syncService'
 import { CalibracionBascula } from './features/calibracion/CalibracionBascula'
 
 /** Cada cuánto se revisa solo, en segundo plano, si hay novedades de otros dispositivos. */
@@ -45,6 +45,7 @@ function AppAutenticada() {
     if (usuario && navigator.onLine) {
       void descargarMaestros()
       void descargarBasculas()
+      void descargarOperarios()
       void descargarRecepcionesEnProceso()
     }
   }, [usuario])
