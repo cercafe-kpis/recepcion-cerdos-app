@@ -15,8 +15,9 @@ const ENLACES = [
   { to: '/ubicacion', label: 'Ubicación' },
   { to: '/novedades-corral', label: 'Novedades en Corral' },
   { to: '/consolidado', label: 'Consolidado' },
+  { to: '/calibracion-bascula', label: 'Calibración báscula', roles: ['Administrador', 'Supervisor', 'Auditor'] },
   { to: '/reporte', label: 'Reporte' },
-]
+] as Array<{ to: string; label: string; fin?: boolean; roles?: string[] }>
 
 export function Navbar({ usuario }: { usuario: Usuario }) {
   const { instance } = useMsal()
@@ -34,7 +35,7 @@ export function Navbar({ usuario }: { usuario: Usuario }) {
         </div>
 
         <nav className="flex flex-1 flex-wrap gap-1">
-          {ENLACES.map((enlace) => (
+          {ENLACES.filter((enlace) => !enlace.roles || enlace.roles.includes(usuario.Rol)).map((enlace) => (
             <NavLink
               key={enlace.to}
               to={enlace.to}
