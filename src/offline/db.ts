@@ -3,6 +3,7 @@ import type {
   Asociado,
   Bascula,
   CalibracionBascula,
+  Operario,
   ConsolidadoTiquete,
   Granja,
   GrupoAsociado,
@@ -47,6 +48,8 @@ export class RecepcionCerdosDB extends Dexie {
   /** Calibración de básculas (v4): maestra de básculas + cola de verificaciones diarias. */
   basculas!: Table<Bascula, string>
   calibracionesBascula!: Table<CalibracionBascula, string>
+  /** v5: operarios de Frigotún (campo "Realizó" de la calibración). */
+  operarios!: Table<Operario, string>
 
   /** Metadatos internos — hoy solo la fecha del último descargarMaestros(). */
   meta!: Table<{ clave: string; valor: string }, string>
@@ -95,6 +98,11 @@ export class RecepcionCerdosDB extends Dexie {
     this.version(4).stores({
       basculas: 'id, Activa',
       calibracionesBascula: 'id, spId, EstadoSync, FechaCalibracion, BasculaId',
+    })
+
+    // v5 (2026-10-14): maestra de operarios de Frigotún para el campo "Realizó" de la calibración.
+    this.version(5).stores({
+      operarios: 'id, Activo',
     })
   }
 }
