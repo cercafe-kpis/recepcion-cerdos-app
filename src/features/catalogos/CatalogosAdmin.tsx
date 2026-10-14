@@ -7,9 +7,10 @@ import { VehiculosAdmin } from './VehiculosAdmin'
 import { UsuariosAdmin } from './UsuariosAdmin'
 import { MantenimientoAdmin } from './MantenimientoAdmin'
 import { BasculasAdmin } from './BasculasAdmin'
+import { OperariosAdmin } from './OperariosAdmin'
 import type { Usuario } from '../../types/models'
 
-type Pestana = 'asociados' | 'gruposAsociados' | 'granjas' | 'vehiculos' | 'usuarios' | 'basculas' | 'mantenimiento'
+type Pestana = 'asociados' | 'gruposAsociados' | 'granjas' | 'vehiculos' | 'usuarios' | 'basculas' | 'operarios' | 'mantenimiento'
 
 const PESTANAS: Array<{ id: Pestana; etiqueta: string }> = [
   { id: 'asociados', etiqueta: 'Asociados' },
@@ -18,6 +19,7 @@ const PESTANAS: Array<{ id: Pestana; etiqueta: string }> = [
   { id: 'vehiculos', etiqueta: 'Vehículos' },
   { id: 'usuarios', etiqueta: 'Usuarios' },
   { id: 'basculas', etiqueta: 'Básculas' },
+  { id: 'operarios', etiqueta: 'Operarios' },
   { id: 'mantenimiento', etiqueta: 'Mantenimiento' },
 ]
 
@@ -64,6 +66,7 @@ export function CatalogosAdmin({ usuario }: { usuario: Usuario }) {
       {pestana === 'vehiculos' && <VehiculosAdmin usuario={usuario} />}
       {pestana === 'usuarios' && <UsuariosAdmin usuario={usuario} />}
       {pestana === 'basculas' && <BasculasAdmin usuario={usuario} />}
+      {pestana === 'operarios' && <OperariosAdmin usuario={usuario} />}
       {pestana === 'mantenimiento' && <MantenimientoAdmin usuario={usuario} />}
     </div>
   )
