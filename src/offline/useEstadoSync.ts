@@ -28,13 +28,14 @@ export function useEstadoSync() {
 
   const pendientes =
     useLiveQuery(async () => {
-      const [r, u, n, t] = await Promise.all([
+      const [r, u, n, t, cal] = await Promise.all([
         db.recepciones.where('EstadoSync').equals('Pendiente').count(),
         db.ubicaciones.where('EstadoSync').equals('Pendiente').count(),
         db.novedadesCorral.where('EstadoSync').equals('Pendiente').count(),
         db.consolidadoTiquetes.where('EstadoSync').equals('Pendiente').count(),
+        db.calibracionesBascula.where('EstadoSync').equals('Pendiente').count(),
       ])
-      return r + u + n + t
+      return r + u + n + t + cal
     }, []) ?? 0
 
   const conflictos =
