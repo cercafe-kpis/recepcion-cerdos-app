@@ -15,6 +15,38 @@ Este README es solo para poner el proyecto a correr.
 2. Registrar (o reutilizar) la app en Microsoft Entra ID — sección 5 de `Arquitectura-...md`.
 3. Crear los 4 grupos de seguridad de SharePoint y agregar a cada persona según su rol.
 
+### Calibración de básculas (agregado 2026-10-13)
+
+Dos listas más en el mismo sitio de SharePoint. Escribe el nombre **exactamente igual** al crear
+cada columna (sin tildes ni espacios): ese es el nombre interno que usa la app.
+
+**`Basculas`** (maestra — se administra en Asociados → Básculas):
+
+| Columna | Tipo |
+|---|---|
+| `Title` | (viene por defecto) nombre de la báscula |
+| `PesaPatronKg` | Número (2 decimales) |
+| `EMPKg` | Número (3 decimales) |
+| `Activa` | Sí/No (predeterminado Sí) |
+
+**`CalibracionesBascula`** (una fila por verificación diaria):
+
+| Columna | Tipo |
+|---|---|
+| `Title` | (viene por defecto) "Báscula · fecha" |
+| `FechaCalibracion` | Fecha y hora (solo fecha) |
+| `BasculaId` | Una línea de texto |
+| `BasculaNombre` | Una línea de texto |
+| `PesaPatronKg`, `EMPKg` | Número |
+| `Medicion1`, `Medicion2`, `Medicion3` | Número (3 decimales) |
+| `PromedioKg`, `ErrorKg` | Número (3 decimales) — ErrorKg puede ser negativo |
+| `Resultado` | Una línea de texto ("Conforme" / "No conforme") |
+| `Realizo`, `Verifico`, `VerificoCorreo` | Una línea de texto |
+| `Observaciones` | Varias líneas de texto |
+| `CapturadaEn`, `RecibidaEn` | Fecha y hora (con hora) |
+
+Después de crear `Basculas`, agrega "Báscula Frigotun · 50 · 0,05" desde Asociados → Básculas.
+
 ## Configuración local
 
 ```bash
