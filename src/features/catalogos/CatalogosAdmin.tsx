@@ -6,9 +6,10 @@ import { GranjasAdmin } from './GranjasAdmin'
 import { VehiculosAdmin } from './VehiculosAdmin'
 import { UsuariosAdmin } from './UsuariosAdmin'
 import { MantenimientoAdmin } from './MantenimientoAdmin'
+import { BasculasAdmin } from './BasculasAdmin'
 import type { Usuario } from '../../types/models'
 
-type Pestana = 'asociados' | 'gruposAsociados' | 'granjas' | 'vehiculos' | 'usuarios' | 'mantenimiento'
+type Pestana = 'asociados' | 'gruposAsociados' | 'granjas' | 'vehiculos' | 'usuarios' | 'basculas' | 'mantenimiento'
 
 const PESTANAS: Array<{ id: Pestana; etiqueta: string }> = [
   { id: 'asociados', etiqueta: 'Asociados' },
@@ -16,6 +17,7 @@ const PESTANAS: Array<{ id: Pestana; etiqueta: string }> = [
   { id: 'granjas', etiqueta: 'Granjas' },
   { id: 'vehiculos', etiqueta: 'Vehículos' },
   { id: 'usuarios', etiqueta: 'Usuarios' },
+  { id: 'basculas', etiqueta: 'Básculas' },
   { id: 'mantenimiento', etiqueta: 'Mantenimiento' },
 ]
 
@@ -40,7 +42,7 @@ export function CatalogosAdmin({ usuario }: { usuario: Usuario }) {
 
   return (
     <div>
-      <div className="mb-4 flex gap-1 border-b border-slate-200">
+      <div className="mb-4 flex flex-wrap gap-1 border-b border-slate-200">
         {PESTANAS.map((p) => (
           <button
             key={p.id}
@@ -61,6 +63,7 @@ export function CatalogosAdmin({ usuario }: { usuario: Usuario }) {
       {pestana === 'granjas' && <GranjasAdmin usuario={usuario} />}
       {pestana === 'vehiculos' && <VehiculosAdmin usuario={usuario} />}
       {pestana === 'usuarios' && <UsuariosAdmin usuario={usuario} />}
+      {pestana === 'basculas' && <BasculasAdmin usuario={usuario} />}
       {pestana === 'mantenimiento' && <MantenimientoAdmin usuario={usuario} />}
     </div>
   )
