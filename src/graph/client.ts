@@ -206,6 +206,9 @@ export type ListName =
   | 'NovedadesCorral'
   | 'ConsolidadoTiquetes'
   | 'RecepcionLog'
+  // Calibración de básculas (2026-10-13) — ver CalibracionBascula en src/types/models.ts.
+  | 'Basculas'
+  | 'CalibracionesBascula'
   // NOTA HISTÓRICA (2026-09-11, octava ronda): 'LlegadasPendientes' vivió aquí (agregada segunda
   // ronda del mismo día) — retirada por completo a pedido de Nathalia, ver el comentario grande de
   // `LlegadaPendiente` en src/types/models.ts. La lista en SharePoint no se tocó, queda sin uso.
