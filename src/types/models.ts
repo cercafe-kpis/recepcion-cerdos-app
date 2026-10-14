@@ -277,6 +277,16 @@ export interface Bascula {
   Activa: boolean
 }
 
+/**
+ * Maestra (lista `Operarios`, 2026-10-14): operarios de Frigotún que pueden REALIZAR una
+ * verificación de báscula. El campo "Realizó" de CalibracionBascula.tsx solo deja elegir de aquí.
+ */
+export interface Operario {
+  id: string
+  Title: string
+  Activo: boolean
+}
+
 export type ResultadoCalibracion = 'Conforme' | 'No conforme'
 
 /**
@@ -302,7 +312,7 @@ export interface CalibracionBascula extends CapturaOffline {
   /** Pesa patrón − promedio, kg. */
   ErrorKg: number
   Resultado: ResultadoCalibracion
-  /** Nombre de quien hizo la medición (lo escribe el verificador). */
+  /** Nombre del operario que hizo la medición (se elige de la maestra `Operarios`). */
   Realizo: string
   /** Usuario con sesión iniciada que guardó y verificó. */
   Verifico: string
