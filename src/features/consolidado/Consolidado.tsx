@@ -32,6 +32,7 @@ import { esErrorDeSesion } from '../../graph/client'
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { BotonConfirmarSesion } from '../../components/BotonConfirmarSesion'
 import { ReporteDiarioLote } from '../reportes/ReporteDiarioLote'
+import { CorregirNovedades } from './CorregirNovedades'
 import type { ConsolidadoTiquete, Destino, NovedadCorral, Recepcion, Usuario } from '../../types/models'
 
 /** Cada cuánto se vuelven a leer de SharePoint los tiquetes del lote elegido, sin que nadie dé clic. */
@@ -138,6 +139,10 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [tipoFortuito, setTipoFortuito] = useState<'Muerto en Transporte' | 'Muerto en Desembarque'>('Muerto en Transporte')
   const [cantidadFortuito, setCantidadFortuito] = useState('1')
   const [guardandoFortuito, setGuardandoFortuito] = useState(false)
+
+  // "Corregir novedades y fortuitos" (2026-10-15, a pedido de Nathalia) — solo Administrador, en
+  // cualquier momento (lote abierto o cerrado). Ver CorregirNovedades.tsx.
+  const [corrigiendoNovedades, setCorrigiendoNovedades] = useState(false)
 
   // Panel "Consecutivos repetidos" (2026-09-29, a pedido de Nathalia — primer caso real de este
   // conflicto en producción): antes la app solo avisaba cuántos había (badge en Navbar.tsx), sin
@@ -280,6 +285,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   // reporte de este lote en pantalla.
   useEffect(() => {
     setNovedadCorral(undefined)
+    setCorrigiendoNovedades(false) // al cambiar de lote se cierra el panel de corrección
     if (recepcion?.spId && navigator.onLine) {
       void cargarOrigenes(recepcion.spId)
     }
@@ -1404,6 +1410,35 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                       Agregar fortuito
                     </button>
                   ))}
+              </div>
+            )}
+            {/* Corregir novedades y fortuitos (2026-10-15) — candado: siempre Administrador. */}
+            {recepcion.spId && esAdmin && (
+              <div className="mt-3">
+                {corrigiendoNovedades ? (
+                  <CorregirNovedades
+                    key={recepcion.spId}
+                    recepcion={recepcion}
+                    usuario={usuario}
+                    onCerrar={() => setCorrigiendoNovedades(false)}
+                    onGuardado={async () => {
+                      if (recepcion.spId) await cargarOrigenes(recepcion.spId)
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError(undefined)
+                      setCorrigiendoNovedades(true)
+                    }}
+                    disabled={!navigator.onLine}
+                    title="Editar o quitar novedades de llegada, de corral y fortuitos de este lote (solo Administrador)"
+                    className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
+                  >
+                    Corregir novedades y fortuitos
+                  </button>
+                )}
               </div>
             )}
             {/* Editar Granja (2026-09-24, a pedido de Nathalia) — a diferencia del candado de
