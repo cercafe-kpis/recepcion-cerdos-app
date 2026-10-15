@@ -1661,3 +1661,12 @@ export async function actualizarNovedadCorral(spId: string, cambios: Partial<Nov
 export async function eliminarNovedadCorral(spId: string): Promise<void> {
   await deleteItem('NovedadesCorral', spId)
 }
+
+/**
+ * "Editar cantidad de cerdos" (2026-10-15, a pedido de Nathalia) — solo Administrador, desde
+ * Consolidado. Corrige NumeroTotalCerdos de una Recepción ya sincronizada (columna Número). Los
+ * reportes la leen directo de SharePoint, así que reflejan el valor nuevo apenas se guarda.
+ */
+export async function actualizarCantidadCerdos(recepcionSpId: string, numeroTotalCerdos: number): Promise<void> {
+  await updateItem('Recepciones', recepcionSpId, { NumeroTotalCerdos: numeroTotalCerdos })
+}
