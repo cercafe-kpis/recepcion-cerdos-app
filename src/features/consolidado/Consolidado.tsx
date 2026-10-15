@@ -10,6 +10,7 @@ import {
   sincronizar,
 } from '../../offline/syncService'
 import {
+  actualizarCantidadCerdos,
   actualizarConsecutivoYOrden,
   actualizarFortuitosDeRecepcion,
   actualizarGranjaDeRecepcion,
@@ -143,6 +144,12 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   // "Corregir novedades y fortuitos" (2026-10-15, a pedido de Nathalia) — solo Administrador, en
   // cualquier momento (lote abierto o cerrado). Ver CorregirNovedades.tsx.
   const [corrigiendoNovedades, setCorrigiendoNovedades] = useState(false)
+
+  // "Editar cantidad de cerdos" (2026-10-15, a pedido de Nathalia) — mismo candado que "Editar
+  // fecha": siempre Administrador, en cualquier momento, solo en línea. Ver guardarCerdos().
+  const [editandoCerdos, setEditandoCerdos] = useState(false)
+  const [nuevosCerdos, setNuevosCerdos] = useState('')
+  const [guardandoCerdos, setGuardandoCerdos] = useState(false)
 
   // Panel "Consecutivos repetidos" (2026-09-29, a pedido de Nathalia — primer caso real de este
   // conflicto en producción): antes la app solo avisaba cuántos había (badge en Navbar.tsx), sin
@@ -286,6 +293,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   useEffect(() => {
     setNovedadCorral(undefined)
     setCorrigiendoNovedades(false) // al cambiar de lote se cierra el panel de corrección
+    setEditandoCerdos(false)
     if (recepcion?.spId && navigator.onLine) {
       void cargarOrigenes(recepcion.spId)
     }
@@ -788,6 +796,42 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
    * nace vacío y el lote ya no está del todo diligenciado. "Muerto en Reposo" no se agrega aquí: su
    * conteo vive en Novedades en Corral, que ya permite registrar varias veces.
    */
+  async function guardarCerdos() {
+    if (!recepcion?.spId || !esAdmin) return
+    const cantidad = Number(nuevosCerdos)
+    if (!Number.isInteger(cantidad) || cantidad < 1) {
+      setError('La cantidad de cerdos recibidos debe ser un número entero mayor a 0.')
+      return
+    }
+    if (cantidad === recepcion.NumeroTotalCerdos) {
+      setEditandoCerdos(false)
+      return
+    }
+    const confirmar = window.confirm(
+      `¿Cambiar la cantidad de cerdos recibidos del lote ${recepcion.Consecutivo} de ${recepcion.NumeroTotalCerdos} a ${cantidad}?\n\n` +
+        'Los reportes tomarán el valor nuevo. Las novedades y los tiquetes no cambian.',
+    )
+    if (!confirmar) return
+    setGuardandoCerdos(true)
+    setError(undefined)
+    try {
+      await actualizarCantidadCerdos(recepcion.spId, cantidad)
+      await db.recepciones.update(recepcion.id, { NumeroTotalCerdos: cantidad })
+      await registrarLog({
+        RecepcionId: recepcion.spId,
+        Usuario: usuario.Title,
+        Accion: 'Cantidad de cerdos corregida',
+        DetalleJson: JSON.stringify({ Antes: recepcion.NumeroTotalCerdos, Despues: cantidad }),
+        CreadoEn: new Date().toISOString(),
+      }).catch(() => undefined) // la bitácora nunca debe tumbar la operación
+      setEditandoCerdos(false)
+    } catch (err) {
+      setError(`No se pudo guardar la cantidad de cerdos: ${(err as Error).message}`)
+    } finally {
+      setGuardandoCerdos(false)
+    }
+  }
+
   async function guardarFortuito() {
     if (!recepcion?.spId || soloLectura) return
     const cantidad = Math.floor(Number(cantidadFortuito))
@@ -1157,6 +1201,20 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
               ) : (
                 <Dato etiqueta="Granja" valor={granja?.Title ?? '—'} />
               )}
+              {editandoCerdos ? (
+                <CampoTexto
+                  etiqueta="N.° de cerdos recibidos"
+                  requerido
+                  type="number"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  value={nuevosCerdos}
+                  onChange={(e) => setNuevosCerdos(e.target.value)}
+                />
+              ) : (
+                <Dato etiqueta="N.° de cerdos recibidos" valor={String(recepcion.NumeroTotalCerdos ?? '—')} />
+              )}
               {editandoConsecutivo ? (
                 <>
                   <CampoTexto
@@ -1339,6 +1397,48 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                     className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
                   >
                     Editar fecha
+                  </button>
+                )}
+              </div>
+            )}
+            {/* Editar cantidad de cerdos (2026-10-15) — candado: siempre Administrador. Ver guardarCerdos(). */}
+            {esAdmin && recepcion.spId && (
+              <div className="mt-3 flex items-center gap-3">
+                {editandoCerdos ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void guardarCerdos()}
+                      disabled={guardandoCerdos || !navigator.onLine}
+                      className="rounded-md bg-brand-navy px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-navy-hover disabled:opacity-50"
+                    >
+                      {guardandoCerdos ? 'Guardando…' : 'Guardar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditandoCerdos(false)
+                        setError(undefined)
+                      }}
+                      disabled={guardandoCerdos}
+                      className="text-xs font-medium text-slate-500 hover:text-brand-red disabled:opacity-50"
+                    >
+                      Cancelar
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError(undefined)
+                      setNuevosCerdos(String(recepcion.NumeroTotalCerdos ?? ''))
+                      setEditandoCerdos(true)
+                    }}
+                    disabled={!navigator.onLine}
+                    title="Corregir la cantidad de cerdos recibidos por un error de captura (solo Administrador)"
+                    className="text-xs font-medium text-brand-navy hover:underline disabled:text-slate-400"
+                  >
+                    Editar cantidad de cerdos
                   </button>
                 )}
               </div>
