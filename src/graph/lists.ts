@@ -1570,3 +1570,94 @@ export async function actualizarOperario(id: string, cambios: Partial<Pick<Opera
 export async function eliminarOperario(id: string): Promise<void> {
   await deleteItem('Operarios', id)
 }
+
+// ---------------------------------------------------------------------------
+// "Corregir novedades y fortuitos" (2026-10-15, a pedido de Nathalia) — solo Administrador, desde
+// Consolidado (ver CorregirNovedades.tsx). Edita los conteos de origen de los tiquetes: novedades de
+// llegada y fortuitos de transporte/desembarque (en Recepciones) y cada registro de Novedades en
+// Corral por separado (lesionados/caídos/agitados de corral y Muerto en reposo).
+// ---------------------------------------------------------------------------
+
+/** Campos de conteo de una Recepción que se pueden corregir (nombres del MODELO). */
+export type CambiosNovedadesRecepcion = Partial<
+  Pick<
+    Recepcion,
+    | 'NovLlegadaLesionados'
+    | 'NovLlegadaCantLesionados'
+    | 'NovLlegadaLesionadosBeneficioEmergencia'
+    | 'NovLlegadaCantLesionadosBeneficioEmergencia'
+    | 'NovLlegadaCaidos'
+    | 'NovLlegadaCantCaidos'
+    | 'NovLlegadaCaidosBeneficioEmergencia'
+    | 'NovLlegadaCantCaidosBeneficioEmergencia'
+    | 'NovLlegadaAgitados'
+    | 'NovLlegadaCantAgitados'
+    | 'NovLlegadaAgitadosBeneficioEmergencia'
+    | 'NovLlegadaCantAgitadosBeneficioEmergencia'
+    | 'FortuitoMuertoTransporte'
+    | 'FortuitoCantMuertoTransporte'
+    | 'FortuitoMuertoDesembarque'
+    | 'FortuitoCantMuertoDesembarque'
+  >
+>
+
+/**
+ * Escribe los conteos corregidos en la Recepción. Traduce a su nombre REAL en SharePoint las 6
+ * columnas de "beneficio de emergencia" cuyo nombre interno quedó cortado a 32 caracteres (ver
+ * NOMBRE_SP_BENEFICIO_EMERGENCIA) — sin esto Graph responde 400 "Field … is not recognized".
+ */
+export async function actualizarNovedadesDeRecepcion(recepcionSpId: string, cambios: CambiosNovedadesRecepcion): Promise<void> {
+  const campos: Record<string, unknown> = {}
+  for (const [clave, valor] of Object.entries(cambios)) {
+    const nombreSP = (NOMBRE_SP_BENEFICIO_EMERGENCIA as Record<string, string>)[clave] ?? clave
+    campos[nombreSP] = valor
+  }
+  await updateItem('Recepciones', recepcionSpId, campos)
+}
+
+/** Cada registro de Novedades en Corral del lote, por separado y con su spId (para poder editarlos). */
+export async function listarRegistrosNovedadCorral(recepcionSpId: string): Promise<NovedadCorral[]> {
+  const items = await listItems<Record<string, unknown>>(
+    'NovedadesCorral',
+    `$expand=fields&$filter=fields/RecepcionId eq '${recepcionSpId.replace(/'/g, "''")}'&$top=200`,
+  )
+  const num = (v: unknown) => (v === undefined || v === null ? undefined : Number(v))
+  return items
+    .map((item) => {
+      const f = item.fields
+      return {
+        id: item.id,
+        spId: item.id,
+        RecepcionId: recepcionSpId,
+        CapturadoPor: f.CapturadoPor ? String(f.CapturadoPor) : undefined,
+        MuertoReposo: Boolean(f.MuertoReposo),
+        CantMuertoReposo: num(f.CantMuertoReposo),
+        ComportamientoSexual: Boolean(f.ComportamientoSexual),
+        DisponibilidadAgua: Boolean(f.DisponibilidadAgua ?? true),
+        CorralLesionados: Boolean(f.CorralLesionados),
+        CorralCantLesionados: num(f.CorralCantLesionados),
+        CorralLesionadosBenefEmerg: Boolean(f.CorralLesionadosBenefEmerg),
+        CorralCantLesionadosBenefEmerg: num(f.CorralCantLesionadosBenefEmerg),
+        CorralCaidos: Boolean(f.CorralCaidos),
+        CorralCantCaidos: num(f.CorralCantCaidos),
+        CorralCaidosBenefEmerg: Boolean(f.CorralCaidosBenefEmerg),
+        CorralCantCaidosBenefEmerg: num(f.CorralCantCaidosBenefEmerg),
+        CorralAgitados: Boolean(f.CorralAgitados),
+        CorralCantAgitados: num(f.CorralCantAgitados),
+        CorralAgitadosBenefEmerg: Boolean(f.CorralAgitadosBenefEmerg),
+        CorralCantAgitadosBenefEmerg: num(f.CorralCantAgitadosBenefEmerg),
+        EstadoSync: 'Sincronizada' as const,
+        CapturadaEn: String(f.CapturadaEn ?? ''),
+        RecibidaEn: f.RecibidaEn ? String(f.RecibidaEn) : undefined,
+      }
+    })
+    .sort((a, b) => a.CapturadaEn.localeCompare(b.CapturadaEn))
+}
+
+export async function actualizarNovedadCorral(spId: string, cambios: Partial<NovedadCorral>): Promise<void> {
+  await updateItem('NovedadesCorral', spId, cambios)
+}
+
+export async function eliminarNovedadCorral(spId: string): Promise<void> {
+  await deleteItem('NovedadesCorral', spId)
+}
