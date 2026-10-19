@@ -79,19 +79,24 @@ function formatearRangoSemana(desde: string, hasta: string, mayusculas: boolean)
 }
 
 /**
- * Número de semana ISO 8601 (lunes a domingo, semana 1 = la que contiene el primer jueves del
- * año) calculado a partir de la fecha "desde" elegida en el filtro. Si en Cercafe usan otra
- * convención de numeración de semanas, este número puede no coincidir exactamente — el rango de
- * fechas que sí se ve debajo (y todos los datos) siempre reflejan el filtro real.
+ * Número de semana con la convención de Cercafe: cortes de DOMINGO a SÁBADO, y la semana 1 es la
+ * que contiene el 1 de enero (aunque empiece en diciembre del año anterior). Ej. 2026: semana 1 =
+ * 28 dic 2025 – 3 ene 2026, y 11 – 17 oct 2026 = semana 42.
+ *
+ * Antes se usaba ISO 8601 (lunes a domingo), que para un domingo devolvía la semana anterior —
+ * por eso el informe del 11 al 17 de octubre salía como "Semana 41".
+ *
+ * Se calcula a partir de la fecha "desde" del filtro; el año de la semana es el del sábado que la
+ * cierra (así la semana 28 dic – 3 ene cuenta como semana 1 del año nuevo, no como la 53).
  */
-function numeroSemanaISO(fechaISO: string): number {
+function numeroSemanaCercafe(fechaISO: string): number {
+  const DIA_MS = 86400000
   const fecha = new Date(`${fechaISO}T00:00:00Z`)
-  const dia = (fecha.getUTCDay() + 6) % 7
-  fecha.setUTCDate(fecha.getUTCDate() - dia + 3)
-  const primerJueves = new Date(Date.UTC(fecha.getUTCFullYear(), 0, 4))
-  const diaPrimerJueves = (primerJueves.getUTCDay() + 6) % 7
-  primerJueves.setUTCDate(primerJueves.getUTCDate() - diaPrimerJueves + 3)
-  return 1 + Math.round((fecha.getTime() - primerJueves.getTime()) / (7 * 86400000))
+  const domingo = new Date(fecha.getTime() - fecha.getUTCDay() * DIA_MS)
+  const sabado = new Date(domingo.getTime() + 6 * DIA_MS)
+  const primeroEnero = new Date(Date.UTC(sabado.getUTCFullYear(), 0, 1))
+  const domingoSemana1 = new Date(primeroEnero.getTime() - primeroEnero.getUTCDay() * DIA_MS)
+  return 1 + Math.round((domingo.getTime() - domingoSemana1.getTime()) / (7 * DIA_MS))
 }
 
 function fechaCorta(iso: string): string {
@@ -170,7 +175,7 @@ export function ReporteSemanalAsociado({
     precargarLibreriaDeImagen()
   }, [])
 
-  const numeroSemana = numeroSemanaISO(desde)
+  const numeroSemana = numeroSemanaCercafe(desde)
   const rangoMayus = formatearRangoSemana(desde, hasta, true)
   const rangoMinus = formatearRangoSemana(desde, hasta, false)
 
