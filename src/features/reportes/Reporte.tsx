@@ -6,6 +6,7 @@ import {
   listarRecepcionesPorRangoFecha,
   listarTiquetesDeRecepcion,
   obtenerNovedadCorralDeRecepcion,
+  obtenerPesoPromedioPlantaDeRecepcion,
 } from '../../graph/lists'
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { ReporteDiarioLote } from './ReporteDiarioLote'
@@ -161,6 +162,7 @@ function ReporteDiario({ mapaVehiculos }: { mapaVehiculos: Map<string, { Title: 
   const [recepciones, setRecepciones] = useState<Recepcion[]>([])
   const [tiquetesPorRecepcion, setTiquetesPorRecepcion] = useState<Record<string, ConsolidadoTiquete[]>>({})
   const [novedadCorralPorRecepcion, setNovedadCorralPorRecepcion] = useState<Record<string, NovedadCorral>>({})
+  const [pesoPlantaPorRecepcion, setPesoPlantaPorRecepcion] = useState<Record<string, number>>({})
 
   const asociados = useLiveQuery(() => db.asociados.toArray(), []) ?? []
   const granjas = useLiveQuery(() => db.granjas.toArray(), []) ?? []
@@ -176,17 +178,25 @@ function ReporteDiario({ mapaVehiculos }: { mapaVehiculos: Map<string, { Title: 
       traidas.sort((a, b) => a.Consecutivo.localeCompare(b.Consecutivo))
       const porRecepcion: Record<string, ConsolidadoTiquete[]> = {}
       const novedadCorralPorRec: Record<string, NovedadCorral> = {}
+      const pesoPlantaPorRec: Record<string, number> = {}
       await Promise.all(
         traidas.map(async (r) => {
           if (!r.spId) return
-          porRecepcion[r.spId] = await listarTiquetesDeRecepcion(r.spId)
-          const novedad = await obtenerNovedadCorralDeRecepcion(r.spId)
-          if (novedad) novedadCorralPorRec[r.spId] = novedad
+          const spId = r.spId
+          const [tiquetes, novedad, peso] = await Promise.all([
+            listarTiquetesDeRecepcion(spId),
+            obtenerNovedadCorralDeRecepcion(spId),
+            obtenerPesoPromedioPlantaDeRecepcion(spId),
+          ])
+          porRecepcion[spId] = tiquetes
+          if (novedad) novedadCorralPorRec[spId] = novedad
+          if (peso !== undefined) pesoPlantaPorRec[spId] = peso
         }),
       )
       setRecepciones(traidas)
       setTiquetesPorRecepcion(porRecepcion)
       setNovedadCorralPorRecepcion(novedadCorralPorRec)
+      setPesoPlantaPorRecepcion(pesoPlantaPorRec)
       setGenerado(true)
     } catch (err) {
       setError(`No se pudo generar el reporte: ${(err as Error).message}`)
@@ -234,6 +244,7 @@ function ReporteDiario({ mapaVehiculos }: { mapaVehiculos: Map<string, { Title: 
                   placa={mapaVehiculos.get(r.PlacaVehiculoId)?.Title ?? '—'}
                   tiquetes={r.spId ? (tiquetesPorRecepcion[r.spId] ?? []) : []}
                   novedadCorral={r.spId ? novedadCorralPorRecepcion[r.spId] : undefined}
+                  pesoPromedioPlanta={r.spId ? pesoPlantaPorRecepcion[r.spId] : undefined}
                 />
               ))}
             </div>

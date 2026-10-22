@@ -82,6 +82,7 @@ export function ReporteDiarioLote({
   placa,
   tiquetes,
   novedadCorral,
+  pesoPromedioPlanta,
 }: {
   recepcion: Recepcion
   asociadoNombre: string
@@ -89,6 +90,8 @@ export function ReporteDiarioLote({
   placa: string
   tiquetes: ConsolidadoTiquete[]
   novedadCorral?: NovedadCorral
+  /** Viene de la Ubicación del lote (ver obtenerPesoPromedioPlantaDeRecepcion) — "—" si aún no hay. */
+  pesoPromedioPlanta?: number
 }) {
   const contenedorRef = useRef<HTMLDivElement>(null)
   const [descargando, setDescargando] = useState(false)
@@ -253,9 +256,17 @@ export function ReporteDiarioLote({
           <Campo etiqueta="Fecha" valor={formatearFecha(recepcion.FechaRecepcion)} />
           <Campo etiqueta="Planta" valor={PLANTA} />
           <Campo etiqueta="Asociado" valor={asociadoNombre} className="sm:col-span-2" />
-          <Campo etiqueta="Granja" valor={granjaNombre} className="sm:col-span-2" />
+          <Campo etiqueta="Granja" valor={granjaNombre} />
           <Campo etiqueta="Orden" valor={recepcion.NumeroOrden} />
           <Campo etiqueta="# Animales" valor={recepcion.NumeroTotalCerdos} />
+          <Campo
+            etiqueta="Peso prom. planta"
+            valor={
+              pesoPromedioPlanta && pesoPromedioPlanta > 0
+                ? `${pesoPromedioPlanta.toLocaleString('es-CO', { maximumFractionDigits: 2 })} kg`
+                : '—'
+            }
+          />
         </div>
 
         {/* Horas — envuelta en overflow-x-auto: en un celular angosto esta tabla de 7 columnas no
