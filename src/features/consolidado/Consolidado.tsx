@@ -206,6 +206,108 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     return filtroEstado === 'completos' ? base.filter((r) => r.EstadoLote === 'Completo') : base
   }, [recepciones, hoy, idsFueraDeHoy, filtroEstado, recepcionId])
 
+  // Lista de pendientes (2026-10-22, a pedido de Nathalia): con "Pendientes de terminar" se ven TODOS
+  // los lotes en una tabla, con buscador por Consecutivo/Orden, y se pueden terminar desde ahí mismo
+  // (uno por uno o varios seleccionados) sin tener que abrirlos uno a uno en el desplegable.
+  const todasGranjas = useLiveQuery(() => db.granjas.toArray(), []) ?? []
+  const todosAsociados = useLiveQuery(() => db.asociados.toArray(), []) ?? []
+  const nombreGranja = useMemo(() => new Map(todasGranjas.map((g) => [g.id, g.Title])), [todasGranjas])
+  const nombreAsociado = useMemo(() => new Map(todosAsociados.map((a) => [a.id, a.Title])), [todosAsociados])
+  const [busquedaPendientes, setBusquedaPendientes] = useState('')
+  const [seleccionPendientes, setSeleccionPendientes] = useState<string[]>([])
+  const [terminandoLista, setTerminandoLista] = useState(false)
+  const [progresoLista, setProgresoLista] = useState<string>()
+  const [avisoLista, setAvisoLista] = useState<string>()
+  const puedeTerminarDesdeLista = usuario.Rol !== 'Consultor'
+
+  const pendientesFiltrados = useMemo(() => {
+    if (filtroEstado !== 'pendientes') return []
+    const q = busquedaPendientes.trim()
+    return recepcionesVisibles.filter(
+      (r) =>
+        r.EstadoLote !== 'Completo' &&
+        (!q || String(r.Consecutivo).includes(q) || String(r.NumeroOrden ?? '').includes(q)),
+    )
+  }, [filtroEstado, busquedaPendientes, recepcionesVisibles])
+
+  const todosSeleccionados =
+    pendientesFiltrados.length > 0 && pendientesFiltrados.every((r) => seleccionPendientes.includes(r.id))
+
+  function alternarSeleccion(id: string) {
+    setSeleccionPendientes((sel) => (sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]))
+  }
+
+  function alternarTodos() {
+    const ids = pendientesFiltrados.map((r) => r.id)
+    setSeleccionPendientes((sel) =>
+      todosSeleccionados ? sel.filter((x) => !ids.includes(x)) : [...new Set([...sel, ...ids])],
+    )
+  }
+
+  /**
+   * "Terminar" desde la lista de pendientes — misma revisión que terminarProceso() (más abajo):
+   * sincroniza, trae los tiquetes frescos de cada lote y, si alguno tiene tiquetes sin Tiquete/
+   * Destino/Factura, lo avisa en UN solo mensaje con la lista de esos Consecutivos para que la
+   * persona decida. Con varios lotes siempre pide confirmación, aunque estén todos completos.
+   */
+  async function terminarLotes(lotes: Recepcion[]) {
+    const aTerminar = lotes.filter((r) => r.spId && r.EstadoLote !== 'Completo')
+    if (aTerminar.length === 0 || !navigator.onLine) return
+    setTerminandoLista(true)
+    setError(undefined)
+    setAvisoLista(undefined)
+    try {
+      setProgresoLista('Sincronizando…')
+      await sincronizar(usuario.Correo)
+      const incompletos: string[] = []
+      for (const [i, r] of aTerminar.entries()) {
+        setProgresoLista(`Revisando tiquetes ${i + 1} de ${aTerminar.length}…`)
+        await cachearTiquetesDeRecepcion(r.spId as string)
+        const tiquetesLote = await db.consolidadoTiquetes.where('RecepcionId').equals(r.spId as string).toArray()
+        const faltan = tiquetesLote.filter((t) => !tiqueteYaCompletado(t)).length
+        if (faltan > 0) incompletos.push(`• ${r.Consecutivo}: ${faltan} de ${tiquetesLote.length} tiquetes incompletos`)
+      }
+      setProgresoLista(undefined)
+
+      const cuantos = aTerminar.length === 1 ? `el lote ${aTerminar[0].Consecutivo}` : `${aTerminar.length} lotes`
+      if (incompletos.length > 0) {
+        const lista = incompletos.length > 15 ? [...incompletos.slice(0, 15), `… y ${incompletos.length - 15} más`] : incompletos
+        const continuar = window.confirm(
+          `Estos lotes todavía tienen tiquetes sin Tiquete, Destino y Factura (si aplica) completos:\n\n${lista.join('\n')}\n\n¿Terminar el proceso de ${cuantos} de todas formas? Después de esto solo un Administrador podrá seguir editándolos.`,
+        )
+        if (!continuar) return
+      } else if (aTerminar.length > 1) {
+        const continuar = window.confirm(
+          `¿Terminar el proceso de ${cuantos}? Todos tienen sus tiquetes completos. Después de esto solo un Administrador podrá seguir editándolos.`,
+        )
+        if (!continuar) return
+      }
+
+      const terminados: string[] = []
+      const fallidos: string[] = []
+      for (const [i, r] of aTerminar.entries()) {
+        setProgresoLista(`Terminando ${i + 1} de ${aTerminar.length}…`)
+        try {
+          await marcarLoteCompleto(r.spId as string)
+          await db.recepciones.update(r.id, { EstadoLote: 'Completo' })
+          terminados.push(r.id)
+        } catch {
+          fallidos.push(r.Consecutivo)
+        }
+      }
+      setSeleccionPendientes((sel) => sel.filter((id) => !terminados.includes(id)))
+      setAvisoLista(
+        `${terminados.length} lote${terminados.length === 1 ? '' : 's'} terminado${terminados.length === 1 ? '' : 's'}.` +
+          (fallidos.length > 0 ? ` No se pudieron terminar: ${fallidos.join(', ')} — inténtalo de nuevo.` : ''),
+      )
+    } catch (err) {
+      setError(`No se pudo terminar el proceso: ${(err as Error).message}`)
+    } finally {
+      setTerminandoLista(false)
+      setProgresoLista(undefined)
+    }
+  }
+
   const cantidadPendientes = useMemo(
     () => recepciones.filter((r) => r.EstadoLote !== 'Completo').length,
     [recepciones],
@@ -468,6 +570,9 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     setFechaBusqueda('')
     setIdsFueraDeHoy([])
     setFiltroEstado('todos')
+    setBusquedaPendientes('')
+    setSeleccionPendientes([])
+    setAvisoLista(undefined)
     setError(undefined)
     if (recepcion && recepcion.FechaRecepcion !== hoy) {
       setRecepcionId('')
@@ -1265,6 +1370,124 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
           Limpiar filtros
         </button>
       </div>
+
+      {filtroEstado === 'pendientes' && (
+        <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4 print:hidden">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="w-full max-w-xs">
+              <CampoTexto
+                etiqueta="Buscar en pendientes"
+                placeholder="Consecutivo u orden…"
+                value={busquedaPendientes}
+                onChange={(e) => setBusquedaPendientes(e.target.value)}
+              />
+            </div>
+            {puedeTerminarDesdeLista && (
+              <button
+                type="button"
+                onClick={() =>
+                  void terminarLotes(pendientesFiltrados.filter((r) => seleccionPendientes.includes(r.id)))
+                }
+                disabled={
+                  terminandoLista ||
+                  !navigator.onLine ||
+                  !pendientesFiltrados.some((r) => seleccionPendientes.includes(r.id))
+                }
+                className="rounded-md bg-brand-navy px-3 py-2 text-xs font-medium text-white hover:bg-brand-navy/90 disabled:bg-slate-300"
+              >
+                {terminandoLista
+                  ? (progresoLista ?? 'Terminando…')
+                  : `Terminar seleccionados (${pendientesFiltrados.filter((r) => seleccionPendientes.includes(r.id)).length})`}
+              </button>
+            )}
+          </div>
+
+          {avisoLista && <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{avisoLista}</p>}
+
+          <p className="mt-3 text-xs text-slate-500">
+            {cargandoPendientes
+              ? 'Consultando SharePoint…'
+              : `${pendientesFiltrados.length} lote${pendientesFiltrados.length === 1 ? '' : 's'} pendiente${pendientesFiltrados.length === 1 ? '' : 's'}${busquedaPendientes.trim() ? ' con esa búsqueda' : ''}`}
+          </p>
+
+          <div className="mt-2 max-h-[28rem] overflow-auto rounded-md border border-slate-200">
+            <table className="w-full min-w-[640px] border-collapse text-left text-xs">
+              <thead className="sticky top-0 bg-slate-100 text-slate-600">
+                <tr>
+                  {puedeTerminarDesdeLista && (
+                    <th className="w-8 px-2 py-2">
+                      <input
+                        type="checkbox"
+                        checked={todosSeleccionados}
+                        onChange={alternarTodos}
+                        disabled={terminandoLista || pendientesFiltrados.length === 0}
+                        aria-label="Seleccionar todos"
+                      />
+                    </th>
+                  )}
+                  <th className="px-2 py-2 font-semibold">Consecutivo</th>
+                  <th className="px-2 py-2 font-semibold">Fecha</th>
+                  <th className="px-2 py-2 font-semibold">Orden</th>
+                  <th className="px-2 py-2 font-semibold">Granja</th>
+                  <th className="px-2 py-2 font-semibold">Asociado</th>
+                  <th className="px-2 py-2 text-right font-semibold">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendientesFiltrados.map((r) => (
+                  <tr
+                    key={r.id}
+                    className={clsx('border-t border-slate-100', r.id === recepcionId ? 'bg-brand-navy-tint' : 'hover:bg-slate-50')}
+                  >
+                    {puedeTerminarDesdeLista && (
+                      <td className="px-2 py-1.5">
+                        <input
+                          type="checkbox"
+                          checked={seleccionPendientes.includes(r.id)}
+                          onChange={() => alternarSeleccion(r.id)}
+                          disabled={terminandoLista}
+                          aria-label={`Seleccionar ${r.Consecutivo}`}
+                        />
+                      </td>
+                    )}
+                    <td className="px-2 py-1.5 font-semibold text-slate-900">{r.Consecutivo}</td>
+                    <td className="px-2 py-1.5">{r.FechaRecepcion.slice(0, 10)}</td>
+                    <td className="px-2 py-1.5">{r.NumeroOrden || '—'}</td>
+                    <td className="px-2 py-1.5">{nombreGranja.get(r.GranjaId) ?? '—'}</td>
+                    <td className="px-2 py-1.5">{nombreAsociado.get(r.AsociadoId) ?? '—'}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setRecepcionId(r.id)}
+                        className="text-xs font-medium text-brand-navy hover:underline"
+                      >
+                        Abrir
+                      </button>
+                      {puedeTerminarDesdeLista && (
+                        <button
+                          type="button"
+                          onClick={() => void terminarLotes([r])}
+                          disabled={terminandoLista || !navigator.onLine}
+                          className="ml-3 rounded-md border border-brand-navy px-2 py-0.5 text-xs font-medium text-brand-navy hover:bg-brand-navy-tint disabled:opacity-50"
+                        >
+                          Terminar
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!cargandoPendientes && pendientesFiltrados.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-2 py-4 text-center text-slate-500">
+                      {busquedaPendientes.trim() ? 'Ningún lote pendiente coincide con esa búsqueda.' : 'No hay lotes pendientes de terminar.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {!recepcion && recepciones.length === 0 && (
         <p className="mt-6 text-sm text-slate-500">
