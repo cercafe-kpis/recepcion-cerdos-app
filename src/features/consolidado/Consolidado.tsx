@@ -25,6 +25,7 @@ import {
   listarRecepcionesPorRangoFecha,
   marcarLoteCompleto,
   obtenerNovedadCorralDeRecepcion,
+  obtenerPesoPromedioPlantaDeRecepcion,
   obtenerRecepcionActual,
   reabrirLote,
   registrarLog,
@@ -79,6 +80,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   const [error, setError] = useState<string>()
   const [verReporteInmediato, setVerReporteInmediato] = useState(false)
   const [novedadCorral, setNovedadCorral] = useState<NovedadCorral>()
+  const [pesoPromedioPlanta, setPesoPromedioPlanta] = useState<number>()
   // Origen ACTUAL de los tiquetes (Recepción y Novedades en Corral, leídas de SharePoint), para
   // detectar tiquetes "de más" — ver tiquetesSobrantes() en graph/lists.ts. `spId` evita usar la
   // respuesta de un lote que ya no es el elegido.
@@ -292,6 +294,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   // reporte de este lote en pantalla.
   useEffect(() => {
     setNovedadCorral(undefined)
+    setPesoPromedioPlanta(undefined)
     setCorrigiendoNovedades(false) // al cambiar de lote se cierra el panel de corrección
     setEditandoCerdos(false)
     if (recepcion?.spId && navigator.onLine) {
@@ -315,6 +318,12 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
       setOrigenes({ spId, recepcion: recepcionFresca, novedadCorral: novedad })
     } catch {
       setOrigenes(undefined)
+    }
+    // Aparte: si falla, el reporte solo muestra "—" en Peso prom. planta, sin afectar lo demás.
+    try {
+      setPesoPromedioPlanta(await obtenerPesoPromedioPlantaDeRecepcion(spId))
+    } catch {
+      setPesoPromedioPlanta(undefined)
     }
   }
 
@@ -1632,6 +1641,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                     placa={vehiculo?.Title ?? '—'}
                     tiquetes={tiquetes}
                     novedadCorral={novedadCorral}
+                    pesoPromedioPlanta={pesoPromedioPlanta}
                   />
                 </div>
               )}
