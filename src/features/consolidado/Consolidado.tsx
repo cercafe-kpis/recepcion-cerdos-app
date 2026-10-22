@@ -22,6 +22,7 @@ import {
   tiquetesSobrantes,
   generarTiquetesFaltantes,
   generarTiquetesNovedadCorral,
+  listarRecepcionesEnProceso,
   listarRecepcionesPorRangoFecha,
   marcarLoteCompleto,
   obtenerNovedadCorralDeRecepcion,
@@ -184,10 +185,67 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
   // historial completo.
   const [idsFueraDeHoy, setIdsFueraDeHoy] = useState<string[]>([])
   const hoy = hoyISO()
-  const recepcionesVisibles = useMemo(
-    () => recepciones.filter((r) => r.FechaRecepcion === hoy || idsFueraDeHoy.includes(r.id)),
-    [recepciones, hoy, idsFueraDeHoy],
+
+  // Filtro "Estado" (2026-10-22, a pedido de Nathalia): había varios Consecutivos a los que nunca
+  // se les dio "Terminar proceso" y no había forma de encontrarlos sin buscarlos uno por uno.
+  // - 'todos': comportamiento de siempre (lotes de hoy + los que trajo un buscador).
+  // - 'pendientes': TODOS los lotes "En proceso", de CUALQUIER fecha — ver cargarPendientes().
+  // - 'completos': de lo que ya está visible (hoy + buscadores), solo los ya terminados.
+  const [filtroEstado, setFiltroEstado] = useState<'todos' | 'pendientes' | 'completos'>('todos')
+  const [cargandoPendientes, setCargandoPendientes] = useState(false)
+
+  const recepcionesVisibles = useMemo(() => {
+    if (filtroEstado === 'pendientes') {
+      // El lote elegido se deja en la lista aunque se acabe de terminar, para que el desplegable no
+      // se quede "vacío" justo después de dar clic en Terminar proceso.
+      return recepciones
+        .filter((r) => r.EstadoLote !== 'Completo' || r.id === recepcionId)
+        .sort((a, b) => a.FechaRecepcion.localeCompare(b.FechaRecepcion) || a.Consecutivo.localeCompare(b.Consecutivo))
+    }
+    const base = recepciones.filter((r) => r.FechaRecepcion === hoy || idsFueraDeHoy.includes(r.id))
+    return filtroEstado === 'completos' ? base.filter((r) => r.EstadoLote === 'Completo') : base
+  }, [recepciones, hoy, idsFueraDeHoy, filtroEstado, recepcionId])
+
+  const cantidadPendientes = useMemo(
+    () => recepciones.filter((r) => r.EstadoLote !== 'Completo').length,
+    [recepciones],
   )
+
+  /**
+   * Al elegir "Pendientes de terminar" se consulta SharePoint directo (si hay conexión) para que la
+   * lista sea la real y no la que este dispositivo tenga guardada: trae los lotes "En proceso" que
+   * falten en Dexie, y corrige el EstadoLote local de los que se terminaron o reabrieron desde OTRO
+   * dispositivo (descargarRecepcionesEnProceso() en syncService.ts no actualiza ese campo).
+   */
+  async function cargarPendientes() {
+    if (!navigator.onLine) return
+    setCargandoPendientes(true)
+    setError(undefined)
+    try {
+      const remotas = await listarRecepcionesEnProceso()
+      const spIdsEnProceso = new Set(remotas.map((r) => r.spId as string))
+      for (const rec of remotas) {
+        const local = await db.recepciones.where('spId').equals(rec.spId as string).first()
+        if (!local) await db.recepciones.put(rec)
+        else if (local.EstadoLote !== 'En proceso') await db.recepciones.update(local.id, { EstadoLote: 'En proceso' })
+      }
+      // listarRecepcionesEnProceso() trae máximo 500: si llegó justo al tope, la lista puede estar
+      // incompleta y no se marca nada como Completo (mejor mostrar de más que esconder uno pendiente).
+      if (remotas.length < 500) {
+        const locales = await db.recepciones.where('EstadoSync').equals('Sincronizada').toArray()
+        for (const local of locales) {
+          if (local.spId && local.EstadoLote !== 'Completo' && !spIdsEnProceso.has(local.spId)) {
+            await db.recepciones.update(local.id, { EstadoLote: 'Completo' })
+          }
+        }
+      }
+    } catch (err) {
+      setError(`No se pudieron traer los lotes pendientes: ${(err as Error).message}`)
+    } finally {
+      setCargandoPendientes(false)
+    }
+  }
+
 
   const recepcion = useMemo(() => recepciones.find((r) => r.id === recepcionId), [recepciones, recepcionId])
 
@@ -409,6 +467,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     setConsecutivoBusqueda('')
     setFechaBusqueda('')
     setIdsFueraDeHoy([])
+    setFiltroEstado('todos')
     setError(undefined)
     if (recepcion && recepcion.FechaRecepcion !== hoy) {
       setRecepcionId('')
@@ -1105,16 +1164,45 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
 
       <div className="mt-4 max-w-sm print:hidden">
         <CampoSelect
+          etiqueta="Estado"
+          value={filtroEstado}
+          onChange={(e) => {
+            const nuevo = (e.target.value || 'todos') as typeof filtroEstado
+            setFiltroEstado(nuevo)
+            if (nuevo === 'pendientes') void cargarPendientes()
+          }}
+          opciones={[
+            { value: 'pendientes', label: `Pendientes de terminar (${cantidadPendientes})` },
+            { value: 'completos', label: 'Terminados' },
+          ]}
+          placeholder="Todos"
+        />
+      </div>
+
+      <div className="mt-3 max-w-sm print:hidden">
+        <CampoSelect
           etiqueta="Recepción"
           value={recepcionId}
           onChange={(e) => setRecepcionId(e.target.value)}
-          opciones={recepcionesVisibles.map((r) => ({ value: r.id, label: r.Title }))}
-          placeholder="Selecciona una recepción sincronizada de hoy…"
+          opciones={recepcionesVisibles.map((r) => ({
+            value: r.id,
+            label: r.EstadoLote === 'Completo' ? `${r.Title} · Terminado` : r.Title,
+          }))}
+          placeholder={
+            filtroEstado === 'pendientes'
+              ? cargandoPendientes
+                ? 'Buscando lotes pendientes…'
+                : `Selecciona un lote pendiente (${recepcionesVisibles.length})…`
+              : 'Selecciona una recepción sincronizada de hoy…'
+          }
         />
       </div>
       <p className="mt-1 max-w-sm text-xs text-slate-400 print:hidden">
-        Por defecto solo se ven los lotes recibidos hoy — usa uno de los buscadores de abajo para
-        encontrar cualquier otro.
+        {filtroEstado === 'pendientes'
+          ? cargandoPendientes
+            ? 'Consultando SharePoint…'
+            : `${recepcionesVisibles.length} lote${recepcionesVisibles.length === 1 ? '' : 's'} de cualquier fecha sin "Terminar proceso", del más antiguo al más reciente.`
+          : 'Por defecto solo se ven los lotes recibidos hoy — usa uno de los buscadores de abajo para encontrar cualquier otro.'}
       </p>
 
       {/* flex-col por defecto y solo lado a lado desde sm: el <input type="date"> nativo tiene un
@@ -1169,7 +1257,9 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
         <button
           type="button"
           onClick={limpiarFiltros}
-          disabled={!consecutivoBusqueda && !fechaBusqueda && idsFueraDeHoy.length === 0 && !error}
+          disabled={
+            !consecutivoBusqueda && !fechaBusqueda && idsFueraDeHoy.length === 0 && !error && filtroEstado === 'todos'
+          }
           className="text-xs font-medium text-slate-500 hover:text-brand-red disabled:opacity-40 disabled:hover:text-slate-500"
         >
           Limpiar filtros
