@@ -874,6 +874,27 @@ export async function existeUbicacionDeRecepcion(recepcionSpId: string): Promise
 }
 
 /**
+ * Peso promedio en planta (kg) de un lote — vive en la Ubicación de esa Recepción (se captura en
+ * Ubicacion.tsx), no en la Recepción. Se consulta Graph directo por la misma razón que
+ * obtenerNovedadCorralDeRecepcion(): la Ubicación pudo capturarse en otro dispositivo.
+ * Agregado 2026-10-22 para mostrarlo en el Reporte de llegada (ReporteDiarioLote.tsx).
+ *
+ * Si hay más de una Ubicación para el mismo lote, se toma la más reciente con peso > 0 (id de
+ * SharePoint más alto). Devuelve `undefined` si todavía no hay Ubicación o no tiene peso.
+ */
+export async function obtenerPesoPromedioPlantaDeRecepcion(recepcionSpId: string): Promise<number | undefined> {
+  const items = await listItems<Record<string, unknown>>(
+    'Ubicaciones',
+    `$expand=fields&$filter=fields/RecepcionId eq '${recepcionSpId.replace(/'/g, "''")}'`,
+  )
+  const conPeso = items
+    .map((i) => ({ id: Number(i.id), peso: Number(i.fields.PesoPromedioPlanta ?? 0) }))
+    .filter((i) => Number.isFinite(i.peso) && i.peso > 0)
+    .sort((a, b) => b.id - a.id)
+  return conPeso[0]?.peso
+}
+
+/**
  * Usada en 2 lugares con propósitos distintos: `obtenerNovedadCorralDeRecepcion()` (más abajo, para
  * traer y combinar el registro completo) y, desde el 2026-09-21, como el chequeo de "¿ya existe una
  * Novedad en Corral para este lote?" que muestra el aviso de posible duplicado en
