@@ -13,8 +13,7 @@ import { ReporteDiarioLote } from './ReporteDiarioLote'
 import { ReporteSemanalAsociado } from './ReporteSemanalAsociado'
 import { ReporteCierreDiario } from './ReporteCierreDiario'
 import { ResumenPorLote } from './ResumenPorLote'
-import { ReporteCalibracionBascula } from './ReporteCalibracionBascula'
-import type { ConsolidadoTiquete, NovedadCorral, Recepcion, Usuario } from '../../types/models'
+import type { ConsolidadoTiquete, NovedadCorral, Recepcion } from '../../types/models'
 
 function hoyISO() {
   return new Date().toISOString().slice(0, 10)
@@ -51,9 +50,6 @@ function haceDiasISO(dias: number) {
  *  - "Resumen por lote" (agregada 2026-10-09, a pedido de Nathalia): una tarjeta por cada lote del
  *    rango de fechas, con grupo asociado, granja, fecha, cantidad de cerdos, novedades, tiquetes de
  *    beneficiados de emergencia y fortuitos. Ver ResumenPorLote.tsx.
- *  - "Calibración báscula" (agregada 2026-10-13, a pedido de Nathalia): mediciones de la pesa
- *    patrón y error en kg por fecha. Ver ReporteCalibracionBascula.tsx. Recibe `usuario` solo para
- *    que el Administrador pueda eliminar una verificación mal registrada.
  *
  * Ninguna de las pestañas descarga nada en segundo plano ni lo guarda
  * en Dexie: las tres consultan SharePoint directo, solo al tocar "Generar",
@@ -61,8 +57,8 @@ function haceDiasISO(dias: number) {
  * acumulando cada vez más historial (igual que descargarRecepcionesEnProceso
  * en syncService.ts, que sigue trayendo solo las recepciones "En proceso").
  */
-export function Reporte({ usuario }: { usuario?: Usuario }) {
-  const [tab, setTab] = useState<'diario' | 'semanal' | 'cierre' | 'resumen' | 'calibracion'>('diario')
+export function Reporte() {
+  const [tab, setTab] = useState<'diario' | 'semanal' | 'cierre' | 'resumen'>('diario')
 
   const asociados = useLiveQuery(() => db.asociados.toArray(), []) ?? []
   const granjas = useLiveQuery(() => db.granjas.toArray(), []) ?? []
@@ -78,7 +74,7 @@ export function Reporte({ usuario }: { usuario?: Usuario }) {
       <h1 className="text-xl font-semibold text-slate-800 print:hidden">Reporte</h1>
       <p className="mt-1 text-sm text-slate-500 print:hidden">
         Reporte diario por lote (para enviar al asociado apenas termina una recepción), informe semanal de
-        novedades en corrales por Grupo Asociado, cierre diario, resumen por lote o calibración de báscula.
+        novedades en corrales por Grupo Asociado, cierre diario o resumen por lote.
       </p>
 
       <div className="mt-4 flex flex-wrap gap-1 print:hidden">
@@ -122,16 +118,6 @@ export function Reporte({ usuario }: { usuario?: Usuario }) {
         >
           Resumen por lote
         </button>
-        <button
-          type="button"
-          onClick={() => setTab('calibracion')}
-          className={clsx(
-            'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-            tab === 'calibracion' ? 'bg-brand-navy text-white' : 'text-slate-600 hover:bg-brand-navy-tint',
-          )}
-        >
-          Calibración báscula
-        </button>
       </div>
 
       {tab === 'diario' ? (
@@ -145,8 +131,6 @@ export function Reporte({ usuario }: { usuario?: Usuario }) {
         />
       ) : tab === 'cierre' ? (
         <ReporteCierre mapaAsociados={mapaAsociados} mapaGranjas={mapaGranjas} />
-      ) : tab === 'calibracion' ? (
-        <ReporteCalibracionBascula usuario={usuario} />
       ) : (
         <ResumenPorLote mapaAsociados={mapaAsociados} mapaGranjas={mapaGranjas} gruposAsociados={gruposAsociados} />
       )}

@@ -1,9 +1,6 @@
 import Dexie, { type Table } from 'dexie'
 import type {
   Asociado,
-  Bascula,
-  CalibracionBascula,
-  Operario,
   ConsolidadoTiquete,
   Granja,
   GrupoAsociado,
@@ -45,11 +42,6 @@ export class RecepcionCerdosDB extends Dexie {
   novedadesCorral!: Table<NovedadCorral, string>
   consolidadoTiquetes!: Table<ConsolidadoTiquete, string>
 
-  /** Calibración de básculas (v4): maestra de básculas + cola de verificaciones diarias. */
-  basculas!: Table<Bascula, string>
-  calibracionesBascula!: Table<CalibracionBascula, string>
-  /** v5: operarios de Frigotún (campo "Realizó" de la calibración). */
-  operarios!: Table<Operario, string>
 
   /** Metadatos internos — hoy solo la fecha del último descargarMaestros(). */
   meta!: Table<{ clave: string; valor: string }, string>
@@ -104,6 +96,15 @@ export class RecepcionCerdosDB extends Dexie {
     this.version(5).stores({
       operarios: 'id, Activo',
     })
+
+    // v6 (2026-10-26): se retiró por completo la calibración de básculas de la app (la hace otra
+    // área). Estas tres tablas se BORRAN de la base local de cada dispositivo al abrir la app —
+    // v4/v5 se dejan declaradas arriba solo para que Dexie pueda migrar dispositivos viejos.
+    this.version(6).stores({
+      basculas: null,
+      calibracionesBascula: null,
+      operarios: null,
+    })
   }
 }
 
@@ -111,14 +112,13 @@ export const db = new RecepcionCerdosDB()
 
 /** Cuántos registros de este dispositivo siguen sin subir — para el badge de la barra superior. */
 export async function contarPendientes(): Promise<number> {
-  const [r, u, n, c, cal] = await Promise.all([
+  const [r, u, n, c] = await Promise.all([
     db.recepciones.where('EstadoSync').equals('Pendiente').count(),
     db.ubicaciones.where('EstadoSync').equals('Pendiente').count(),
     db.novedadesCorral.where('EstadoSync').equals('Pendiente').count(),
     db.consolidadoTiquetes.where('EstadoSync').equals('Pendiente').count(),
-    db.calibracionesBascula.where('EstadoSync').equals('Pendiente').count(),
   ])
-  return r + u + n + c + cal
+  return r + u + n + c
 }
 
 /** Igual que arriba, pero solo los que necesitan revisión de un Administrador (choque de Consecutivo). */

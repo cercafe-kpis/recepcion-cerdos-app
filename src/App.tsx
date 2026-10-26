@@ -12,7 +12,7 @@ import { Consolidado } from './features/consolidado/Consolidado'
 import { Reporte } from './features/reportes/Reporte'
 import { CatalogosAdmin } from './features/catalogos/CatalogosAdmin'
 import { useCurrentUser } from './auth/useCurrentUser'
-import { descargarBasculas, descargarMaestros, descargarOperarios, descargarRecepcionesEnProceso, sincronizar } from './offline/syncService'
+import { descargarMaestros, descargarRecepcionesEnProceso, sincronizar } from './offline/syncService'
 
 /** Cada cuánto se revisa solo, en segundo plano, si hay novedades de otros dispositivos. */
 const INTERVALO_AUTO_SYNC_MS = 2 * 60 * 1000
@@ -43,8 +43,6 @@ function AppAutenticada() {
   useEffect(() => {
     if (usuario && navigator.onLine) {
       void descargarMaestros()
-      void descargarBasculas()
-      void descargarOperarios()
       void descargarRecepcionesEnProceso()
     }
   }, [usuario])
@@ -146,9 +144,8 @@ function AppAutenticada() {
             }
           />
           <Route path="/consolidado" element={<Consolidado usuario={usuario} />} />
-          {/* Ruta /calibracion-bascula retirada 2026-10-26: la calibración la hace otra área (ver Navbar.tsx). */}
           {/* Sin ProtegidoPorRol a propósito: "todos los perfiles pueden tener acceso a este reporte" (pedido explícito del usuario). */}
-          <Route path="/reporte" element={<Reporte usuario={usuario} />} />
+          <Route path="/reporte" element={<Reporte />} />
           <Route
             path="/admin/asociados"
             element={

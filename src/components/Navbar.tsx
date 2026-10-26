@@ -15,8 +15,6 @@ const ENLACES = [
   { to: '/ubicacion', label: 'Ubicación' },
   { to: '/novedades-corral', label: 'Novedades en Corral' },
   { to: '/consolidado', label: 'Consolidado' },
-  // 'Calibración báscula' se quitó del menú el 2026-10-26 (a pedido de Nathalia): la verificación
-  // de la báscula la hace otra área, no desde esta app. El código sigue en src/features/calibracion/.
   { to: '/reporte', label: 'Reporte' },
 ] as Array<{ to: string; label: string; fin?: boolean; roles?: string[] }>
 
