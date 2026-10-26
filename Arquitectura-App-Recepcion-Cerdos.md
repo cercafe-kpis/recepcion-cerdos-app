@@ -2108,6 +2108,26 @@ nuevo con las mediciones y el error en kg por fecha.
   archivos. Verificado con tsc, oxlint, build y prueba en navegador (filtro, Enter, texto libre borrado,
   guardado con el nombre).
 
+## Sesión del 2026-10-26 — Se retira por completo la calibración de básculas
+
+Pedido de Nathalia: la verificación de la báscula la hace otra área, así que "todo lo relacionado a
+calibración de báscula ya no debe existir" en la app. Las secciones del 2026-10-13 y 2026-10-14 de
+arriba quedan solo como historia.
+
+- Borrados: `src/features/calibracion/CalibracionBascula.tsx`, `src/features/reportes/ReporteCalibracionBascula.tsx`,
+  `src/features/catalogos/BasculasAdmin.tsx`, `src/features/catalogos/OperariosAdmin.tsx`,
+  `src/utils/calibracion.ts` y `src/components/CampoBuscable.tsx` (solo lo usaba "Realizó").
+- Quitados: botón y ruta `/calibracion-bascula`, pestaña "Calibración báscula" de Reporte (y la prop
+  `usuario` de `Reporte`, que solo usaba esa pestaña), pestañas "Básculas" y "Operarios" de Asociados,
+  `descargarBasculas()`/`descargarOperarios()`/`sincronizarCalibraciones()` en syncService, las
+  funciones de Graph y los tipos `Bascula`/`Operario`/`CalibracionBascula`, y el conteo de
+  calibraciones pendientes del badge de sincronización.
+- Dexie **v6**: borra las tablas locales `basculas`, `calibracionesBascula` y `operarios` en cada
+  dispositivo al abrir la app (v4/v5 siguen declaradas solo para poder migrar dispositivos viejos).
+  Una calibración capturada sin conexión y todavía sin subir se pierde — aceptado, el módulo ya no se usa.
+- Las listas `Basculas`, `CalibracionesBascula` y `Operarios` de SharePoint NO se tocaron desde la app:
+  si se quieren eliminar, es un paso manual en SharePoint (la app ya no las lee ni las escribe).
+
 ## Pendiente / a definir con el equipo
 - **Sin diagnosticar todavía**: lotes capturados el 2026-09-28 en un computador distinto al de
   Nathalia no llegaron a aparecer ni en SharePoint ni en los reportes — descartado que fuera por los
