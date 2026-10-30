@@ -2128,6 +2128,32 @@ arriba quedan solo como historia.
 - Las listas `Basculas`, `CalibracionesBascula` y `Operarios` de SharePoint NO se tocaron desde la app:
   si se quieren eliminar, es un paso manual en SharePoint (la app ya no las lee ni las escribe).
 
+## Sesión del 2026-10-28 — Tipos de lesión (llegada y corral)
+
+Pedido de Nathalia: al marcar "Lesionado" (Novedad de llegada en Recepción y Novedad en corral) debe
+aparecer el tipo de lesión, elegido de una tabla que administra el Administrador. Decisiones que ella
+tomó: **cantidad por tipo** (ej. 2 Cojera + 1 Hernia, la suma debe dar el total de lesionados) y que
+el desglose salga en el **Reporte de llegada, el Informe semanal y el Resumen por lote**.
+
+- Maestra nueva `TiposLesion` (Title + Activo) — pestaña "Tipos de lesión" en Asociados
+  (`TiposLesionAdmin.tsx`, copia del patrón de GruposAsociados). Dexie **v7** (`tiposLesion`).
+  `descargarTiposLesion()` va aparte de `descargarMaestros()` (si la lista no existe, no rompe nada)
+  y se repite en cada `sincronizar()` para que un tipo nuevo llegue pronto a los celulares.
+- Desglose guardado como TEXTO JSON (`[{tipoId, tipo, cantidad}]`) en `Recepciones.NovLlegadaLesionesDetalle`
+  y `NovedadesCorral.CorralLesionesDetalle` (varias líneas de texto). Se guarda el NOMBRE además del id
+  para que renombrar/borrar un tipo no cambie el historial. Todo pasa por `src/utils/lesiones.ts`.
+- Captura: `src/components/DetalleLesiones.tsx` (filas tipo + cantidad; si hay una sola fila sin
+  cantidad se toma el total). Se valida al guardar; si el dispositivo no tiene tipos activos, NO se
+  exige (no bloquear la captura).
+- `crearConColumnasOpcionales()` en `graph/lists.ts`: si Graph rechaza por una columna opcional que
+  aún no existe (CapturadoPor, las dos de lesiones), reintenta sin ella.
+- `obtenerNovedadCorralDeRecepcion()` suma el desglose por tipo entre envíos de corral.
+- Reportes: Reporte de llegada (debajo del total de Lesión), Informe semanal (bloque "Lesiones por
+  tipo" + entre paréntesis en las tarjetas por granja/vehículo), Resumen por lote (tarjeta y columna
+  "Tipos de lesión" en el Excel).
+- **Pendiente conocido:** "Corregir novedades y fortuitos" (Administrador) todavía no edita el
+  desglose por tipo; si cambia la cantidad de lesionados, el desglose guardado queda como estaba.
+
 ## Pendiente / a definir con el equipo
 - **Sin diagnosticar todavía**: lotes capturados el 2026-09-28 en un computador distinto al de
   Nathalia no llegaron a aparecer ni en SharePoint ni en los reportes — descartado que fuera por los

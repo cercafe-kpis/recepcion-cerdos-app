@@ -12,7 +12,7 @@ import { Consolidado } from './features/consolidado/Consolidado'
 import { Reporte } from './features/reportes/Reporte'
 import { CatalogosAdmin } from './features/catalogos/CatalogosAdmin'
 import { useCurrentUser } from './auth/useCurrentUser'
-import { descargarMaestros, descargarRecepcionesEnProceso, sincronizar } from './offline/syncService'
+import { descargarMaestros, descargarRecepcionesEnProceso, descargarTiposLesion, sincronizar } from './offline/syncService'
 
 /** Cada cuánto se revisa solo, en segundo plano, si hay novedades de otros dispositivos. */
 const INTERVALO_AUTO_SYNC_MS = 2 * 60 * 1000
@@ -43,6 +43,7 @@ function AppAutenticada() {
   useEffect(() => {
     if (usuario && navigator.onLine) {
       void descargarMaestros()
+      void descargarTiposLesion()
       void descargarRecepcionesEnProceso()
     }
   }, [usuario])

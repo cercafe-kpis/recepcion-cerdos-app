@@ -8,6 +8,7 @@ import {
 import { CampoSelect, CampoTexto } from '../../components/CamposFormulario'
 import { descargarElementoComoImagen } from '../../utils/descargarImagen'
 import { crearExcel, type Celda } from '../../utils/crearExcel'
+import { combinarLesiones, parsearLesiones, textoLesiones } from '../../utils/lesiones'
 import type { ConsolidadoTiquete, NovedadCorral, Recepcion, TipoNovedad } from '../../types/models'
 
 function hoyISO() {
@@ -41,7 +42,8 @@ type DatosLote = {
   novedadCorral?: NovedadCorral
 }
 
-type LineaNovedad = { etiqueta: string; total: number; emergencia: number }
+/** `detalle`: desglose por tipo de lesión, solo en la línea de Lesionados (2026-10-28). */
+type LineaNovedad = { etiqueta: string; total: number; emergencia: number; detalle?: string }
 
 /** Lesionados / Caídos / Agitados de un lote, separados por origen (llegada vs. corral). */
 function lineasDeNovedades(d: DatosLote): { llegada: LineaNovedad[]; corral: LineaNovedad[] } {
@@ -52,6 +54,7 @@ function lineasDeNovedades(d: DatosLote): { llegada: LineaNovedad[]; corral: Lin
       etiqueta: 'Lesionados',
       total: r.NovLlegadaCantLesionados ?? 0,
       emergencia: r.NovLlegadaCantLesionadosBeneficioEmergencia ?? 0,
+      detalle: textoLesiones(parsearLesiones(r.NovLlegadaLesionesDetalle)),
     },
     { etiqueta: 'Caídos', total: r.NovLlegadaCantCaidos ?? 0, emergencia: r.NovLlegadaCantCaidosBeneficioEmergencia ?? 0 },
     {
@@ -61,7 +64,12 @@ function lineasDeNovedades(d: DatosLote): { llegada: LineaNovedad[]; corral: Lin
     },
   ]
   const corral: LineaNovedad[] = [
-    { etiqueta: 'Lesionados', total: c?.CorralCantLesionados ?? 0, emergencia: c?.CorralCantLesionadosBenefEmerg ?? 0 },
+    {
+      etiqueta: 'Lesionados',
+      total: c?.CorralCantLesionados ?? 0,
+      emergencia: c?.CorralCantLesionadosBenefEmerg ?? 0,
+      detalle: textoLesiones(parsearLesiones(c?.CorralLesionesDetalle)),
+    },
     { etiqueta: 'Caídos', total: c?.CorralCantCaidos ?? 0, emergencia: c?.CorralCantCaidosBenefEmerg ?? 0 },
     { etiqueta: 'Agitados', total: c?.CorralCantAgitados ?? 0, emergencia: c?.CorralCantAgitadosBenefEmerg ?? 0 },
   ]
@@ -239,6 +247,13 @@ export function ResumenPorLote({
         mapaGranjas.get(r.GranjaId)?.Title ?? '',
         r.NumeroTotalCerdos ?? 0,
         n.lesionados,
+        textoLesiones(
+          combinarLesiones(
+            parsearLesiones(r.NovLlegadaLesionesDetalle),
+            parsearLesiones(d.novedadCorral?.CorralLesionesDetalle),
+          ),
+          ', ',
+        ),
         n.caidos,
         n.agitados,
         totalNovedades,
@@ -287,6 +302,7 @@ export function ResumenPorLote({
           { titulo: 'Granja', ancho: 26 },
           { titulo: '# Cerdos', ancho: 10 },
           { titulo: 'Lesionados (llegada + corral)', ancho: 15 },
+          { titulo: 'Tipos de lesión', ancho: 30 },
           { titulo: 'Caídos (llegada + corral)', ancho: 15 },
           { titulo: 'Agitados (llegada + corral)', ancho: 15 },
           { titulo: 'Total novedades', ancho: 12 },
@@ -590,12 +606,15 @@ function BloqueNovedades({ titulo, lineas, extra }: { titulo: string; lineas: Li
       ) : (
         <ul className="mt-1 space-y-0.5 text-xs text-slate-800">
           {lineas.map((l) => (
-            <li key={l.etiqueta} className="flex justify-between gap-2">
-              <span>{l.etiqueta}</span>
-              <span>
-                <strong>{l.total}</strong>
-                {l.emergencia > 0 && <span className="text-brand-red"> · {l.emergencia} de emergencia</span>}
-              </span>
+            <li key={l.etiqueta}>
+              <div className="flex justify-between gap-2">
+                <span>{l.etiqueta}</span>
+                <span>
+                  <strong>{l.total}</strong>
+                  {l.emergencia > 0 && <span className="text-brand-red"> · {l.emergencia} de emergencia</span>}
+                </span>
+              </div>
+              {l.detalle && <p className="text-[11px] text-slate-500">{l.detalle}</p>}
             </li>
           ))}
           {extra && <li className="text-slate-600">{extra}</li>}

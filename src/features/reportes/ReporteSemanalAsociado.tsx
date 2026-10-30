@@ -6,6 +6,7 @@ import {
   precargarLibreriaDeImagen,
 } from '../../utils/descargarImagen'
 import type { ConsolidadoTiquete, NovedadCorral, Recepcion } from '../../types/models'
+import { combinarLesiones, parsearLesiones, textoLesiones, type LesionDetalle } from '../../utils/lesiones'
 
 const BASE = import.meta.env.BASE_URL
 
@@ -16,10 +17,12 @@ type StatsNovedad = {
   agitados: number
   caidos: number
   lesionados: number
+  /** Desglose de `lesionados` por tipo de lesión (2026-10-28) — ver src/utils/lesiones.ts. */
+  lesiones: LesionDetalle[]
 }
 
 function statsVacias(): StatsNovedad {
-  return { fortuitoTransporte: 0, fortuitoDesembarque: 0, fortuitoReposo: 0, agitados: 0, caidos: 0, lesionados: 0 }
+  return { fortuitoTransporte: 0, fortuitoDesembarque: 0, fortuitoReposo: 0, agitados: 0, caidos: 0, lesionados: 0, lesiones: [] }
 }
 
 /** "Muerto en Reposo" no vive en Recepcion (viene de NovedadCorral) — se cuenta a partir de los
@@ -42,6 +45,11 @@ function sumarStats(base: StatsNovedad, r: Recepcion, cantReposo: number, noveda
     agitados: base.agitados + (r.NovLlegadaCantAgitados ?? 0) + (novedadCorral?.CorralCantAgitados ?? 0),
     caidos: base.caidos + (r.NovLlegadaCantCaidos ?? 0) + (novedadCorral?.CorralCantCaidos ?? 0),
     lesionados: base.lesionados + (r.NovLlegadaCantLesionados ?? 0) + (novedadCorral?.CorralCantLesionados ?? 0),
+    lesiones: combinarLesiones(
+      base.lesiones,
+      parsearLesiones(r.NovLlegadaLesionesDetalle),
+      parsearLesiones(novedadCorral?.CorralLesionesDetalle),
+    ),
   }
 }
 
@@ -56,7 +64,8 @@ function listaBadges(s: StatsNovedad): Array<{ etiqueta: string; cantidad: numbe
     ['Fortuito reposo', s.fortuitoReposo],
     ['Agitados', s.agitados],
     ['Caídos', s.caidos],
-    ['Lesionados', s.lesionados],
+    // Con el desglose por tipo entre paréntesis cuando lo hay: "3 Lesionados (2 Cojera · 1 Hernia)".
+    [s.lesiones.length > 0 ? `Lesionados (${textoLesiones(s.lesiones)})` : 'Lesionados', s.lesionados],
   ]
   return posibles.filter(([, cantidad]) => cantidad > 0).map(([etiqueta, cantidad]) => ({ etiqueta, cantidad }))
 }
@@ -384,6 +393,18 @@ export function ReporteSemanalAsociado({
             <TileResumen valor={totales.stats.caidos} etiqueta="Caídos" tipo="novedad" />
             <TileResumen valor={totales.stats.lesionados} etiqueta="Lesionados" tipo="novedad" />
           </div>
+          {totales.stats.lesiones.length > 0 && (
+            <div className="mt-3" data-pdf-bloque="">
+              <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-slate-500">Lesiones por tipo</p>
+              <div className="flex flex-wrap gap-1.5">
+                {totales.stats.lesiones.map((l) => (
+                  <span key={l.tipo} className={claseBadge}>
+                    {l.cantidad} {l.tipo}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Novedades por granja */}

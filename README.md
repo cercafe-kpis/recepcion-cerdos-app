@@ -15,6 +15,26 @@ Este README es solo para poner el proyecto a correr.
 2. Registrar (o reutilizar) la app en Microsoft Entra ID — sección 5 de `Arquitectura-...md`.
 3. Crear los 4 grupos de seguridad de SharePoint y agregar a cada persona según su rol.
 
+### Tipos de lesión (agregado 2026-10-28)
+
+Escribe los nombres de columna **exactamente igual** (sin tildes ni espacios): ese es el nombre
+interno que usa la app.
+
+**Lista nueva `TiposLesion`** (maestra — se administra en Asociados → Tipos de lesión):
+
+| Columna | Tipo |
+|---|---|
+| `Title` | (viene por defecto) nombre del tipo de lesión |
+| `Activo` | Sí/No (predeterminado Sí) |
+
+**Columna nueva en `Recepciones`:** `NovLlegadaLesionesDetalle` — Varias líneas de texto (texto sin formato).
+
+**Columna nueva en `NovedadesCorral`:** `CorralLesionesDetalle` — Varias líneas de texto (texto sin formato).
+
+Guardan el desglose por tipo como texto JSON (ver `src/utils/lesiones.ts`). Si alguna de las dos
+columnas todavía no existe, la app sigue sincronizando sin ese dato (no se pierde la captura, pero el
+tipo de lesión de esos registros no llega a SharePoint).
+
 ## Configuración local
 
 ```bash

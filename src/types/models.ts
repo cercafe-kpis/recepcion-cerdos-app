@@ -20,6 +20,17 @@ export interface Usuario {
   Activo: boolean
 }
 
+/**
+ * Maestra `TiposLesion` (2026-10-28, a pedido de Nathalia): los tipos de lesión que se eligen al marcar
+ * "Lesionado" en Recepción y en Novedades en Corral. La administra el Administrador desde Asociados →
+ * Tipos de lesión. Ver src/utils/lesiones.ts.
+ */
+export interface TipoLesion {
+  id: string
+  Title: string
+  Activo: boolean
+}
+
 export interface GrupoAsociado {
   id: string
   Title: string
@@ -126,6 +137,15 @@ export interface Recepcion extends CapturaOffline {
   NovLlegadaLesionados: boolean
   NovLlegadaCantLesionados?: number
   /**
+   * Desglose por tipo de lesión de NovLlegadaCantLesionados (2026-10-28), guardado como TEXTO JSON
+   * — ej. '[{"tipoId":"3","tipo":"Cojera","cantidad":2}]' — en la columna de varias líneas
+   * "NovLlegadaLesionesDetalle" de Recepciones. Se guarda el nombre además del id para que el
+   * historial no cambie si después se renombra o borra el tipo. Leer/escribir SIEMPRE con
+   * parsearLesiones()/serializarLesiones() de src/utils/lesiones.ts. Opcional: los lotes anteriores
+   * no lo tienen.
+   */
+  NovLlegadaLesionesDetalle?: string
+  /**
    * De los lesionados/caídos/agitados de arriba, cuántos NO se recuperaron y
    * tocó beneficiar de emergencia — solo esos generan tiquete en Consolidado
    * (ver generarTiquetesFaltantes() en src/graph/lists.ts). Los que sí se
@@ -210,6 +230,8 @@ export interface NovedadCorral extends CapturaOffline {
    */
   CorralLesionados: boolean
   CorralCantLesionados?: number
+  /** Desglose por tipo de lesión de CorralCantLesionados — mismo formato que Recepcion.NovLlegadaLesionesDetalle. */
+  CorralLesionesDetalle?: string
   CorralLesionadosBenefEmerg: boolean
   CorralCantLesionadosBenefEmerg?: number
   CorralCaidos: boolean

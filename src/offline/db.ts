@@ -6,6 +6,7 @@ import type {
   GrupoAsociado,
   NovedadCorral,
   Recepcion,
+  TipoLesion,
   Ubicacion,
   Usuario,
   Vehiculo,
@@ -33,6 +34,8 @@ import type {
 export class RecepcionCerdosDB extends Dexie {
   asociados!: Table<Asociado, string>
   gruposAsociados!: Table<GrupoAsociado, string>
+  /** v7 (2026-10-28): maestra de tipos de lesión — ver src/utils/lesiones.ts. */
+  tiposLesion!: Table<TipoLesion, string>
   granjas!: Table<Granja, string>
   vehiculos!: Table<Vehiculo, string>
   usuarios!: Table<Usuario, string>
@@ -104,6 +107,12 @@ export class RecepcionCerdosDB extends Dexie {
       basculas: null,
       calibracionesBascula: null,
       operarios: null,
+    })
+
+    // v7 (2026-10-28): maestra de tipos de lesión (Recepción y Novedades en Corral, al marcar
+    // "Lesionado"). Dexie migra solo, sin perder datos.
+    this.version(7).stores({
+      tiposLesion: 'id, Activo',
     })
   }
 }

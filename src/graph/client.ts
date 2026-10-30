@@ -199,6 +199,7 @@ export type ListName =
   | 'Usuarios'
   | 'Asociados'
   | 'GruposAsociados'
+  | 'TiposLesion'
   | 'Granjas'
   | 'Vehiculos'
   | 'Recepciones'

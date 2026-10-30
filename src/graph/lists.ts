@@ -1,5 +1,6 @@
 import { createItem, deleteItem, getItem, listItems, updateItem } from './client'
 import { resumenDeCampos, type ResumenNovedadCorral } from '../utils/resumenNovedades'
+import { combinarLesiones, parsearLesiones, serializarLesiones } from '../utils/lesiones'
 import type {
   Asociado,
   ConsolidadoTiquete,
@@ -9,6 +10,7 @@ import type {
   Recepcion,
   RecepcionLogEntry,
   Rol,
+  TipoLesion,
   Usuario,
   Vehiculo,
 } from '../types/models'
@@ -95,6 +97,63 @@ export async function actualizarUsuario(
  */
 export async function eliminarUsuario(id: string): Promise<void> {
   await deleteItem('Usuarios', id)
+}
+
+// ---------------------------------------------------------------------------
+// TiposLesion (2026-10-28) — maestra simple (Title + Activo), mismo patrón que GruposAsociados de
+// abajo. Se elige al marcar "Lesionado" en Recepción y en Novedades en Corral (ver
+// src/utils/lesiones.ts). La administra el Administrador desde Asociados → Tipos de lesión.
+// ---------------------------------------------------------------------------
+
+export async function listarTiposLesion(): Promise<TipoLesion[]> {
+  const items = await listItems<Record<string, unknown>>('TiposLesion', '$expand=fields&$top=999')
+  return items
+    .map((item) => ({
+      id: item.id,
+      Title: String(item.fields.Title ?? ''),
+      Activo: Boolean(item.fields.Activo ?? true),
+    }))
+    .sort((a, b) => a.Title.localeCompare(b.Title, 'es'))
+}
+
+export async function crearTipoLesion(input: { Title: string }): Promise<TipoLesion> {
+  const item = await createItem('TiposLesion', { Title: input.Title, Activo: true })
+  return { id: item.id, Title: input.Title, Activo: true }
+}
+
+export async function actualizarTipoLesion(id: string, cambios: Partial<Pick<TipoLesion, 'Title' | 'Activo'>>): Promise<void> {
+  await updateItem('TiposLesion', id, cambios)
+}
+
+/** Las lesiones ya registradas guardan el NOMBRE del tipo, así que borrarlo no cambia el historial. */
+export async function eliminarTipoLesion(id: string): Promise<void> {
+  await deleteItem('TiposLesion', id)
+}
+
+/**
+ * Crea un registro y, si Graph lo rechaza porque una columna OPCIONAL todavía no existe en la lista
+ * (400 que nombra la columna), lo reintenta sin ella — así una columna nueva sin crear en SharePoint
+ * nunca frena la sincronización de todo lo demás. Un 400 de validación no crea nada, así que el
+ * reintento no puede duplicar. Mismo criterio que ya se usaba para CapturadoPor en NovedadesCorral.
+ */
+async function crearConColumnasOpcionales(
+  lista: 'Recepciones' | 'NovedadesCorral',
+  campos: Record<string, unknown>,
+  opcionales: string[],
+): Promise<{ id: string }> {
+  let actuales = { ...campos }
+  for (;;) {
+    try {
+      return await createItem(lista, actuales)
+    } catch (err) {
+      const faltante = opcionales.find(
+        (col) => actuales[col] !== undefined && new RegExp(col, 'i').test((err as Error).message),
+      )
+      if (!faltante) throw err
+      const { [faltante]: _quitada, ...resto } = actuales
+      actuales = resto
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -462,6 +521,7 @@ function mapFieldsARecepcion(item: { id: string; fields: Record<string, unknown>
     CoincideGuiaICAvsQR: Boolean(f.CoincideGuiaICAvsQR),
     NovLlegadaLesionados: Boolean(f.NovLlegadaLesionados),
     NovLlegadaCantLesionados: numeroOpcional(f.NovLlegadaCantLesionados),
+    NovLlegadaLesionesDetalle: serializarLesiones(parsearLesiones(f.NovLlegadaLesionesDetalle)),
     NovLlegadaLesionadosBeneficioEmergencia: Boolean(
       f[NOMBRE_SP_BENEFICIO_EMERGENCIA.NovLlegadaLesionadosBeneficioEmergencia],
     ),
@@ -645,7 +705,9 @@ export async function crearRecepcionEnSharePoint(
   recepcion: Omit<Recepcion, 'id' | 'spId' | 'RecibidaEn'>,
 ): Promise<{ spId: string; RecibidaEn: string }> {
   const RecibidaEn = new Date().toISOString()
-  const item = await createItem('Recepciones', { ...mapRecepcionAFields(recepcion), RecibidaEn })
+  const item = await crearConColumnasOpcionales('Recepciones', { ...mapRecepcionAFields(recepcion), RecibidaEn }, [
+    'NovLlegadaLesionesDetalle',
+  ])
   return { spId: item.id, RecibidaEn }
 }
 
@@ -822,21 +884,14 @@ export async function crearNovedadCorralEnSharePoint(
   fields: Record<string, unknown> & { RecibidaEn?: string },
 ): Promise<{ spId: string; RecibidaEn: string }> {
   const RecibidaEn = new Date().toISOString()
-  try {
-    const item = await createItem('NovedadesCorral', { ...fields, RecibidaEn })
-    return { spId: item.id, RecibidaEn }
-  } catch (err) {
-    // `CapturadoPor` (quién guardó la novedad) necesita su propia columna de texto en la lista
-    // NovedadesCorral. Si todavía no existe, Graph rechaza TODO el registro con un 400 que nombra
-    // la columna — y sin este respaldo ninguna novedad nueva sincronizaría hasta crearla. Un 400 de
-    // validación no crea nada en SharePoint, así que reintentar sin ese campo no puede duplicar.
-    if (fields.CapturadoPor !== undefined && /CapturadoPor/i.test((err as Error).message)) {
-      const { CapturadoPor: _sinAutor, ...sinAutor } = fields
-      const item = await createItem('NovedadesCorral', { ...sinAutor, RecibidaEn })
-      return { spId: item.id, RecibidaEn }
-    }
-    throw err
-  }
+  // `CapturadoPor` (quién guardó la novedad) y `CorralLesionesDetalle` (tipos de lesión) necesitan
+  // su propia columna en NovedadesCorral; si alguna todavía no existe, se sube sin ella en vez de
+  // frenar toda la sincronización — ver crearConColumnasOpcionales().
+  const item = await crearConColumnasOpcionales('NovedadesCorral', { ...fields, RecibidaEn }, [
+    'CapturadoPor',
+    'CorralLesionesDetalle',
+  ])
+  return { spId: item.id, RecibidaEn }
 }
 
 /**
@@ -966,6 +1021,10 @@ export async function obtenerNovedadCorralDeRecepcion(
         DisponibilidadAgua: combinada.DisponibilidadAgua && Boolean(f.DisponibilidadAgua),
         CorralLesionados: combinada.CorralLesionados || Boolean(f.CorralLesionados),
         CorralCantLesionados: sumarOpcional(combinada.CorralCantLesionados, f.CorralCantLesionados),
+        // Tipos de lesión: se suman por tipo entre todos los envíos (ver combinarLesiones()).
+        CorralLesionesDetalle: serializarLesiones(
+          combinarLesiones(parsearLesiones(combinada.CorralLesionesDetalle), parsearLesiones(f.CorralLesionesDetalle)),
+        ),
         CorralLesionadosBenefEmerg: combinada.CorralLesionadosBenefEmerg || Boolean(f.CorralLesionadosBenefEmerg),
         CorralCantLesionadosBenefEmerg: sumarOpcional(combinada.CorralCantLesionadosBenefEmerg, f.CorralCantLesionadosBenefEmerg),
         CorralCaidos: combinada.CorralCaidos || Boolean(f.CorralCaidos),
@@ -1521,6 +1580,7 @@ export async function listarRegistrosNovedadCorral(recepcionSpId: string): Promi
         DisponibilidadAgua: Boolean(f.DisponibilidadAgua ?? true),
         CorralLesionados: Boolean(f.CorralLesionados),
         CorralCantLesionados: num(f.CorralCantLesionados),
+        CorralLesionesDetalle: serializarLesiones(parsearLesiones(f.CorralLesionesDetalle)),
         CorralLesionadosBenefEmerg: Boolean(f.CorralLesionadosBenefEmerg),
         CorralCantLesionadosBenefEmerg: num(f.CorralCantLesionadosBenefEmerg),
         CorralCaidos: Boolean(f.CorralCaidos),

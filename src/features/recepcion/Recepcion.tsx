@@ -6,6 +6,8 @@ import { db } from '../../offline/db'
 import { sincronizar } from '../../offline/syncService'
 import { buscarRecepcionesPorConsecutivo } from '../../graph/lists'
 import { CampoCheckbox, CampoSelect, CampoTexto, SeccionFormulario } from '../../components/CamposFormulario'
+import { DetalleLesiones, FILAS_LESION_INICIALES, filasALesiones, type FilaLesion } from '../../components/DetalleLesiones'
+import { serializarLesiones, validarLesiones } from '../../utils/lesiones'
 import { recepcionSchema, type RecepcionFormInput, type RecepcionFormValues } from './recepcionSchema'
 import type { Recepcion as RecepcionModelo, Usuario } from '../../types/models'
 
@@ -155,6 +157,11 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
   const [guardando, setGuardando] = useState(false)
   const [mensaje, setMensaje] = useState<string>()
   const [errorGuardado, setErrorGuardado] = useState<string>()
+  // Tipo de lesión (2026-10-28) — ver DetalleLesiones.tsx. Va en estado aparte de react-hook-form
+  // porque es una lista de filas; se valida y se convierte al guardar (onSubmit).
+  const [filasLesion, setFilasLesion] = useState<FilaLesion[]>(FILAS_LESION_INICIALES)
+  const [errorLesiones, setErrorLesiones] = useState<string>()
+  const tiposLesion = useLiveQuery(() => db.tiposLesion.filter((t) => t.Activo).sortBy('Title'), []) ?? []
 
   const asociados = useLiveQuery(() => db.asociados.filter((a) => a.Activo).toArray(), []) ?? []
   const granjas = useLiveQuery(() => db.granjas.filter((g) => g.Activa).toArray(), []) ?? []
@@ -216,8 +223,24 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
         return
       }
       setErrorGuardado(undefined)
+
+      // Tipo de lesión: la suma por tipo debe dar la cantidad de lesionados (ver validarLesiones()).
+      let NovLlegadaLesionesDetalle: string | undefined
+      if (valores.NovLlegadaLesionados) {
+        const total = Number(valores.NovLlegadaCantLesionados) || 0
+        const lesiones = filasALesiones(filasLesion, tiposLesion, total)
+        const problema = validarLesiones(lesiones, total, tiposLesion.length > 0)
+        if (problema) {
+          setErrorLesiones(problema)
+          return
+        }
+        NovLlegadaLesionesDetalle = serializarLesiones(lesiones)
+      }
+      setErrorLesiones(undefined)
+
       const registro: RecepcionModelo = {
         ...valores,
+        NovLlegadaLesionesDetalle,
         id: crypto.randomUUID(),
         Title: `${valores.Consecutivo} · ${valores.FechaRecepcion}`,
         HoraProgramada: combinarFechaHora(valores.FechaRecepcion, valores.HoraProgramada),
@@ -240,6 +263,7 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
       }
       await db.recepciones.put(registro)
       reset(VALORES_INICIALES)
+      setFilasLesion(FILAS_LESION_INICIALES)
       setMensaje('Recepción guardada en este dispositivo.')
 
       if (navigator.onLine) {
@@ -390,6 +414,16 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
             {watch('NovLlegadaLesionados') && (
               <>
                 <CampoTexto type="number" step="1" etiqueta="Cantidad lesionados" {...register('NovLlegadaCantLesionados')} error={errors.NovLlegadaCantLesionados?.message} />
+                <DetalleLesiones
+                  tipos={tiposLesion}
+                  filas={filasLesion}
+                  onCambiar={(filas) => {
+                    setFilasLesion(filas)
+                    setErrorLesiones(undefined)
+                  }}
+                  totalLesionados={Number(watch('NovLlegadaCantLesionados')) || 0}
+                  error={errorLesiones}
+                />
                 <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia por la lesión? (no se recuperó)" {...register('NovLlegadaLesionadosBeneficioEmergencia')} />
                 {watch('NovLlegadaLesionadosBeneficioEmergencia') && (
                   <CampoTexto

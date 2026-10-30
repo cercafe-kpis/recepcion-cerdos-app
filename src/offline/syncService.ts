@@ -11,6 +11,7 @@ import {
   listarAsociados,
   listarGranjas,
   listarGruposAsociados,
+  listarTiposLesion,
   listarIdsDeRecepciones,
   listarRecepcionesEnProceso,
   listarTiquetesDeRecepcion,
@@ -54,6 +55,24 @@ export async function descargarMaestros(): Promise<void> {
       await db.meta.put({ clave: 'maestrosActualizadosEn', valor: new Date().toISOString() })
     },
   )
+}
+
+/**
+ * Maestra de tipos de lesión (2026-10-28). Va APARTE de descargarMaestros() a propósito: si la lista
+ * `TiposLesion` todavía no se ha creado en SharePoint, su error no debe tumbar la descarga de
+ * Asociados/Granjas/Vehículos. Si falla, se deja la copia local como estaba (y los formularios no
+ * exigen el tipo de lesión mientras no haya tipos — ver validarLesiones()).
+ */
+export async function descargarTiposLesion(): Promise<void> {
+  try {
+    const tipos = await listarTiposLesion()
+    await db.transaction('rw', db.tiposLesion, async () => {
+      await db.tiposLesion.clear()
+      await db.tiposLesion.bulkPut(tipos)
+    })
+  } catch {
+    // Lista aún no creada o sin conexión.
+  }
 }
 
 /**
@@ -224,6 +243,10 @@ async function sincronizarUnaVez(usuarioActual: string): Promise<ResultadoSync> 
   await sincronizarUbicaciones(resultado)
   await sincronizarNovedadesCorral(resultado)
   await sincronizarTiquetesPendientes(resultado)
+
+  // Tipos de lesión: se refrescan en cada sincronización (es una lista corta) para que un tipo que
+  // el Administrador acaba de crear aparezca pronto en los celulares de captura. Nunca lanza.
+  await descargarTiposLesion()
 
   try {
     await descargarRecepcionesEnProceso()

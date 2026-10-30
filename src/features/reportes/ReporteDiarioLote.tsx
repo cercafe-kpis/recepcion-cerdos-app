@@ -6,6 +6,7 @@ import {
   generarArchivoPDF,
   precargarLibreriaDeImagen,
 } from '../../utils/descargarImagen'
+import { combinarLesiones, parsearLesiones } from '../../utils/lesiones'
 import type { ConsolidadoTiquete, NovedadCorral, Recepcion, TipoNovedad } from '../../types/models'
 
 const BASE = import.meta.env.BASE_URL
@@ -114,6 +115,11 @@ export function ReporteDiarioLote({
   // Novedad de llegada + Novedad en corral, combinadas (ver el comentario grande sobre
   // novedadCorral en el encabezado de este archivo).
   const totalLesionados = (recepcion.NovLlegadaCantLesionados ?? 0) + (novedadCorral?.CorralCantLesionados ?? 0)
+  // Tipos de lesión (2026-10-28): llegada + corral sumados por tipo — ver src/utils/lesiones.ts.
+  const lesionesPorTipo = combinarLesiones(
+    parsearLesiones(recepcion.NovLlegadaLesionesDetalle),
+    parsearLesiones(novedadCorral?.CorralLesionesDetalle),
+  )
   const totalAgitados = (recepcion.NovLlegadaCantAgitados ?? 0) + (novedadCorral?.CorralCantAgitados ?? 0)
   const totalCaidos = (recepcion.NovLlegadaCantCaidos ?? 0) + (novedadCorral?.CorralCantCaidos ?? 0)
 
@@ -353,6 +359,15 @@ export function ReporteDiarioLote({
             <div className="flex border-t border-slate-200">
               <div className="flex-1 border-r border-slate-200 px-1 py-1.5">
                 {totalLesionados > 0 ? totalLesionados : '—'}
+                {lesionesPorTipo.length > 0 && (
+                  <div className="mt-0.5 flex flex-col text-[10px] leading-tight text-slate-500">
+                    {lesionesPorTipo.map((l) => (
+                      <span key={l.tipo}>
+                        {l.cantidad} {l.tipo}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="flex-1 border-r border-slate-200 px-1 py-1.5">
                 {totalAgitados > 0 ? totalAgitados : '—'}

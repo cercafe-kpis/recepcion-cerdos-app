@@ -12,6 +12,8 @@ import {
 import { esErrorDeSesion } from '../../graph/client'
 import { CampoCheckbox, CampoSelect, CampoTexto, SeccionFormulario } from '../../components/CamposFormulario'
 import { BotonConfirmarSesion } from '../../components/BotonConfirmarSesion'
+import { DetalleLesiones, FILAS_LESION_INICIALES, filasALesiones, type FilaLesion } from '../../components/DetalleLesiones'
+import { serializarLesiones, validarLesiones } from '../../utils/lesiones'
 import { novedadCorralSchema, type NovedadCorralFormInput, type NovedadCorralFormValues } from './novedadCorralSchema'
 import { PanelLoteRegistrado } from './PanelLoteRegistrado'
 import { limpiarCantidadesSinMarcar, type ParejaCasillaCantidad } from '../../utils/limpiarCantidades'
@@ -58,6 +60,10 @@ const VALORES_INICIALES: NovedadCorralFormInput = {
 /** Sigue el mismo patrón que src/features/recepcion/Recepcion.tsx — ver los comentarios allí. */
 export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
   const [guardando, setGuardando] = useState(false)
+  // Tipo de lesión (2026-10-28) — mismo manejo que en Recepcion.tsx, ver DetalleLesiones.tsx.
+  const [filasLesion, setFilasLesion] = useState<FilaLesion[]>(FILAS_LESION_INICIALES)
+  const [errorLesiones, setErrorLesiones] = useState<string>()
+  const tiposLesion = useLiveQuery(() => db.tiposLesion.filter((t) => t.Activo).sortBy('Title'), []) ?? []
   const [mensaje, setMensaje] = useState<string>()
   const [fechaBusqueda, setFechaBusqueda] = useState('')
   const [buscando, setBuscando] = useState(false)
@@ -208,6 +214,20 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
       // guardándose y los reportes la sumaban — ver limpiarCantidadesSinMarcar().
       const valores = limpiarCantidadesSinMarcar(valoresCrudos, PAREJAS_CASILLA_CANTIDAD)
 
+      // Tipo de lesión: la suma por tipo debe dar la cantidad de lesionados (ver validarLesiones()).
+      let CorralLesionesDetalle: string | undefined
+      if (valores.CorralLesionados) {
+        const total = Number(valores.CorralCantLesionados) || 0
+        const lesiones = filasALesiones(filasLesion, tiposLesion, total)
+        const problema = validarLesiones(lesiones, total, tiposLesion.length > 0)
+        if (problema) {
+          setErrorLesiones(problema)
+          return
+        }
+        CorralLesionesDetalle = serializarLesiones(lesiones)
+      }
+      setErrorLesiones(undefined)
+
       // A pedido de Nathalia (2026-10-08): antes de guardar se le dice a la persona, con números,
       // que esta novedad se SUMA a lo que el lote ya tiene (llegada + envíos de corral anteriores),
       // porque los usuarios la tomaban por un estado que reemplaza al anterior y la repetían. Solo
@@ -238,6 +258,7 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
 
       const registro: NovedadCorral = {
         ...valores,
+        CorralLesionesDetalle,
         id: crypto.randomUUID(),
         EstadoSync: 'Pendiente',
         CapturadaEn: new Date().toISOString(),
@@ -246,6 +267,7 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
       }
       await db.novedadesCorral.put(registro)
       reset(VALORES_INICIALES)
+      setFilasLesion(FILAS_LESION_INICIALES)
       setMensaje('Novedad agregada al lote y guardada en este dispositivo.')
 
       if (navigator.onLine) {
@@ -404,6 +426,16 @@ export function NovedadesCorral({ usuario }: { usuario: Usuario }) {
             {watch('CorralLesionados') && (
               <>
                 <CampoTexto type="number" step="1" etiqueta="Cantidad lesionados" {...register('CorralCantLesionados')} error={errors.CorralCantLesionados?.message} />
+                <DetalleLesiones
+                  tipos={tiposLesion}
+                  filas={filasLesion}
+                  onCambiar={(filas) => {
+                    setFilasLesion(filas)
+                    setErrorLesiones(undefined)
+                  }}
+                  totalLesionados={Number(watch('CorralCantLesionados')) || 0}
+                  error={errorLesiones}
+                />
                 <CampoCheckbox etiqueta="¿Alguno se benefició de emergencia por la lesión? (no se recuperó)" {...register('CorralLesionadosBenefEmerg')} />
                 {watch('CorralLesionadosBenefEmerg') && (
                   <CampoTexto
