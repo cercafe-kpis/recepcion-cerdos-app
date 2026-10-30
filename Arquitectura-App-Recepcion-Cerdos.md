@@ -2151,8 +2151,19 @@ el desglose salga en el **Reporte de llegada, el Informe semanal y el Resumen po
 - Reportes: Reporte de llegada (debajo del total de Lesión), Informe semanal (bloque "Lesiones por
   tipo" + entre paréntesis en las tarjetas por granja/vehículo), Resumen por lote (tarjeta y columna
   "Tipos de lesión" en el Excel).
-- **Pendiente conocido:** "Corregir novedades y fortuitos" (Administrador) todavía no edita el
-  desglose por tipo; si cambia la cantidad de lesionados, el desglose guardado queda como estaba.
+- ~~Pendiente: "Corregir novedades y fortuitos" no editaba el desglose~~ — resuelto el 2026-10-30 (ver abajo).
+
+### Ampliación 2026-10-30 — "Corregir novedades y fortuitos" también corrige el tipo de lesión
+- Debajo de cada fila "Lesionados" (llegada y cada registro de corral) aparece el mismo
+  `DetalleLesiones` de la captura, mientras el total sea > 0. Se guarda en
+  `NovLlegadaLesionesDetalle` / `CorralLesionesDetalle`; poner el total en 0 (o "Quitar") borra el
+  desglose (se manda '' para que SharePoint sí lo vacíe).
+- Se exige que la suma cuadre solo si el lote ya tenía desglose, si cambió el total de lesionados o si
+  se escribió algo en las filas — corregir otra novedad de un lote viejo sin tipos no obliga a llenarlos.
+- Tipos guardados que ya no están activos (o se borraron) aparecen igual en el desplegable como
+  "históricos" (`tiposConHistoricos()`), para poder verlos y corregirlos.
+- `actualizarNovedadesDeRecepcion()`/`actualizarNovedadCorral()` usan `actualizarConColumnasOpcionales()`:
+  si la columna del desglose no existe en SharePoint, guardan los conteos sin él.
 
 ## Pendiente / a definir con el equipo
 - **Sin diagnosticar todavía**: lotes capturados el 2026-09-28 en un computador distinto al de

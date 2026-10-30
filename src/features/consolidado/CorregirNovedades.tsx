@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
+import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../../offline/db'
+import { DetalleLesiones, FILAS_LESION_INICIALES, filasALesiones, type FilaLesion } from '../../components/DetalleLesiones'
+import { parsearLesiones, serializarLesiones, validarLesiones, type LesionDetalle } from '../../utils/lesiones'
 import { cachearTiquetesDeRecepcion } from '../../offline/syncService'
 import {
   actualizarNovedadCorral,
@@ -17,12 +20,13 @@ import {
   tiquetesSobrantes,
   type CambiosNovedadesRecepcion,
 } from '../../graph/lists'
-import type { ConsolidadoTiquete, NovedadCorral, Recepcion, Usuario } from '../../types/models'
+import type { ConsolidadoTiquete, NovedadCorral, Recepcion, TipoLesion, Usuario } from '../../types/models'
 
 /** Total reportado + cuántos de esos se beneficiaron de emergencia (solo estos generan tiquete). */
 type Par = { total: string; benef: string }
 
-type FormLlegada = { lesionados: Par; caidos: Par; agitados: Par; transporte: string; desembarque: string }
+/** `lesiones`: desglose por tipo de los lesionados (2026-10-28) — ver DetalleLesiones.tsx. */
+type FormLlegada = { lesionados: Par; lesiones: FilaLesion[]; caidos: Par; agitados: Par; transporte: string; desembarque: string }
 
 type FormCorral = {
   spId: string
@@ -30,6 +34,7 @@ type FormCorral = {
   capturadoPor?: string
   eliminar: boolean
   lesionados: Par
+  lesiones: FilaLesion[]
   caidos: Par
   agitados: Par
   reposo: string
@@ -44,9 +49,50 @@ function entero(valor: string): number {
   return Number.isInteger(n) && n >= 0 ? n : NaN
 }
 
-function formDeRecepcion(r: Recepcion): FormLlegada {
+// --- Tipos de lesión (2026-10-28) ----------------------------------------------------------------
+// Un lote puede tener guardado un tipo que ya no está activo (o que se borró de la maestra). Para que
+// se pueda ver y corregir igual, se agrega a la lista del desplegable como tipo "histórico".
+
+const idHistorico = (l: LesionDetalle) => l.tipoId || `hist:${l.tipo}`
+
+function tipoDeLesion(l: LesionDetalle, activos: TipoLesion[]): TipoLesion | undefined {
+  return (
+    (l.tipoId ? activos.find((t) => t.id === l.tipoId) : undefined) ??
+    activos.find((t) => t.Title.trim().toLocaleLowerCase('es') === l.tipo.trim().toLocaleLowerCase('es'))
+  )
+}
+
+/** Tipos activos + los tipos guardados en el lote que ya no están en la maestra. */
+function tiposConHistoricos(activos: TipoLesion[], detalles: Array<string | undefined>): TipoLesion[] {
+  const extra: TipoLesion[] = []
+  for (const l of detalles.flatMap((d) => parsearLesiones(d))) {
+    if (!tipoDeLesion(l, activos) && !extra.some((t) => t.id === idHistorico(l))) {
+      extra.push({ id: idHistorico(l), Title: l.tipo, Activo: false })
+    }
+  }
+  return [...activos, ...extra]
+}
+
+function filasDeDetalle(detalle: string | undefined, activos: TipoLesion[]): FilaLesion[] {
+  const lesiones = parsearLesiones(detalle)
+  if (lesiones.length === 0) return FILAS_LESION_INICIALES
+  return lesiones.map((l) => ({ tipoId: tipoDeLesion(l, activos)?.id ?? idHistorico(l), cantidad: String(l.cantidad) }))
+}
+
+/** Desglose a guardar. '' (no undefined) cuando no hay lesionados, para que SÍ se borre en SharePoint. */
+function detalleDeFilas(filas: FilaLesion[], tipos: TipoLesion[], totalTexto: string): string {
+  const total = entero(totalTexto)
+  if (!(total > 0)) return ''
+  return serializarLesiones(filasALesiones(filas, tipos, total)) ?? ''
+}
+
+/** Mismo desglose escrito distinto (orden, '' vs undefined) cuenta como igual. */
+const detalleNormalizado = (v: unknown) => serializarLesiones(parsearLesiones(v)) ?? ''
+
+function formDeRecepcion(r: Recepcion, activos: TipoLesion[]): FormLlegada {
   return {
     lesionados: { total: txt(r.NovLlegadaCantLesionados), benef: txt(r.NovLlegadaCantLesionadosBeneficioEmergencia) },
+    lesiones: filasDeDetalle(r.NovLlegadaLesionesDetalle, activos),
     caidos: { total: txt(r.NovLlegadaCantCaidos), benef: txt(r.NovLlegadaCantCaidosBeneficioEmergencia) },
     agitados: { total: txt(r.NovLlegadaCantAgitados), benef: txt(r.NovLlegadaCantAgitadosBeneficioEmergencia) },
     transporte: txt(r.FortuitoCantMuertoTransporte),
@@ -54,13 +100,14 @@ function formDeRecepcion(r: Recepcion): FormLlegada {
   }
 }
 
-function formDeCorral(n: NovedadCorral): FormCorral {
+function formDeCorral(n: NovedadCorral, activos: TipoLesion[]): FormCorral {
   return {
     spId: n.spId as string,
     capturadaEn: n.CapturadaEn,
     capturadoPor: n.CapturadoPor,
     eliminar: false,
     lesionados: { total: txt(n.CorralCantLesionados), benef: txt(n.CorralCantLesionadosBenefEmerg) },
+    lesiones: filasDeDetalle(n.CorralLesionesDetalle, activos),
     caidos: { total: txt(n.CorralCantCaidos), benef: txt(n.CorralCantCaidosBenefEmerg) },
     agitados: { total: txt(n.CorralCantAgitados), benef: txt(n.CorralCantAgitadosBenefEmerg) },
     reposo: txt(n.CantMuertoReposo),
@@ -68,11 +115,12 @@ function formDeCorral(n: NovedadCorral): FormCorral {
 }
 
 /** Conteos → campos de la Recepción, con cada indicador Sí/No en "Sí" solo si su cantidad es > 0. */
-function cambiosDeLlegada(f: FormLlegada): CambiosNovedadesRecepcion {
+function cambiosDeLlegada(f: FormLlegada, tipos: TipoLesion[]): CambiosNovedadesRecepcion {
   const v = (s: string) => entero(s)
   return {
     NovLlegadaLesionados: v(f.lesionados.total) > 0,
     NovLlegadaCantLesionados: v(f.lesionados.total),
+    NovLlegadaLesionesDetalle: detalleDeFilas(f.lesiones, tipos, f.lesionados.total),
     NovLlegadaLesionadosBeneficioEmergencia: v(f.lesionados.benef) > 0,
     NovLlegadaCantLesionadosBeneficioEmergencia: v(f.lesionados.benef),
     NovLlegadaCaidos: v(f.caidos.total) > 0,
@@ -90,11 +138,12 @@ function cambiosDeLlegada(f: FormLlegada): CambiosNovedadesRecepcion {
   }
 }
 
-function cambiosDeCorral(f: FormCorral): Partial<NovedadCorral> {
+function cambiosDeCorral(f: FormCorral, tipos: TipoLesion[]): Partial<NovedadCorral> {
   const v = (s: string) => entero(s)
   return {
     CorralLesionados: v(f.lesionados.total) > 0,
     CorralCantLesionados: v(f.lesionados.total),
+    CorralLesionesDetalle: detalleDeFilas(f.lesiones, tipos, f.lesionados.total),
     CorralLesionadosBenefEmerg: v(f.lesionados.benef) > 0,
     CorralCantLesionadosBenefEmerg: v(f.lesionados.benef),
     CorralCaidos: v(f.caidos.total) > 0,
@@ -110,11 +159,16 @@ function cambiosDeCorral(f: FormCorral): Partial<NovedadCorral> {
   }
 }
 
-/** ¿Algún valor de `nuevos` es distinto del que ya tenía `actual`? (undefined cuenta como 0/No) */
-function hayCambios(actual: object, nuevos: object): boolean {
+/**
+ * ¿Algún valor de `nuevos` es distinto del que ya tenía `actual`? (undefined cuenta como 0/No; el
+ * desglose de lesiones se compara normalizado). `sinDetalle`: ignora el desglose — para el chequeo de
+ * "alguien cambió el lote mientras corregías", que compara el desglose aparte, ya en texto.
+ */
+function hayCambios(actual: object, nuevos: object, sinDetalle = false): boolean {
   const a = actual as Record<string, unknown>
   return Object.entries(nuevos).some(([k, v]) => {
     const previo = a[k]
+    if (k.endsWith('LesionesDetalle')) return !sinDetalle && detalleNormalizado(previo) !== detalleNormalizado(v)
     if (typeof v === 'number') return Number(previo ?? 0) !== v
     return Boolean(previo) !== v
   })
@@ -197,6 +251,29 @@ function FilaUno({
   )
 }
 
+/** Desglose por tipo debajo de la fila "Lesionados" — solo mientras el total sea mayor a 0. */
+function FilaTiposLesion({
+  par,
+  filas,
+  tipos,
+  onFilas,
+}: {
+  par: Par
+  filas: FilaLesion[]
+  tipos: TipoLesion[]
+  onFilas: (f: FilaLesion[]) => void
+}) {
+  const total = entero(par.total)
+  if (!(total > 0)) return null
+  return (
+    <tr>
+      <td colSpan={4} className="pb-2">
+        <DetalleLesiones tipos={tipos} filas={filas.length > 0 ? filas : FILAS_LESION_INICIALES} onCambiar={onFilas} totalLesionados={total} />
+      </td>
+    </tr>
+  )
+}
+
 function Encabezado() {
   return (
     <thead>
@@ -243,7 +320,21 @@ export function CorregirNovedades({
   const [llegada, setLlegada] = useState<FormLlegada>()
   const [corral, setCorral] = useState<FormCorral[]>([])
 
+  // Tipos de lesión activos de este dispositivo. `undefined` mientras Dexie responde: el formulario
+  // se arma solo cuando ya están, para poder emparejar lo guardado con la maestra.
+  const tiposActivos = useLiveQuery(() => db.tiposLesion.filter((t) => t.Activo).sortBy('Title'), [])
+  const tiposListos = tiposActivos !== undefined
+  const tipos = useMemo(
+    () =>
+      tiposConHistoricos(tiposActivos ?? [], [
+        original?.recepcion.NovLlegadaLesionesDetalle,
+        ...(original?.corral.map((c) => c.CorralLesionesDetalle) ?? []),
+      ]),
+    [tiposActivos, original],
+  )
+
   useEffect(() => {
+    if (!tiposListos) return
     let vigente = true
     ;(async () => {
       try {
@@ -254,8 +345,8 @@ export function CorregirNovedades({
         ])
         if (!vigente) return
         setOriginal({ recepcion: rec, corral: registros, tiquetes })
-        setLlegada(formDeRecepcion(rec))
-        setCorral(registros.map(formDeCorral))
+        setLlegada(formDeRecepcion(rec, tiposActivos ?? []))
+        setCorral(registros.map((r) => formDeCorral(r, tiposActivos ?? [])))
       } catch (err) {
         if (vigente) setError(`No se pudieron leer las novedades del lote: ${(err as Error).message}`)
       } finally {
@@ -265,7 +356,9 @@ export function CorregirNovedades({
     return () => {
       vigente = false
     }
-  }, [spId])
+    // Solo al abrir (y cuando los tipos terminan de cargar) — no se rearma si después cambia la maestra.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spId, tiposListos])
 
   // --- Validación: enteros ≥ 0 y beneficiados ≤ total ----------------------------------------
   const errores = useMemo(() => {
@@ -279,8 +372,27 @@ export function CorregirNovedades({
     const revisarUno = (s: string, nombre: string) => {
       if (Number.isNaN(entero(s))) lista.push(`${nombre}: escribe un número entero (0 o más).`)
     }
+    // Tipo de lesión: se exige si el lote ya tenía desglose, si cambió el total de lesionados o si se
+    // escribió algo en las filas. Así corregir OTRA novedad de un lote viejo (sin tipos) no obliga a
+    // llenar los tipos de sus lesionados.
+    const revisarLesiones = (p: Par, filas: FilaLesion[], totalOriginal: number, detalleOriginal: string | undefined, nombre: string) => {
+      const total = entero(p.total)
+      if (!(total > 0)) return
+      const tocado = filas.some((f) => f.tipoId || f.cantidad.trim())
+      const exigir = parsearLesiones(detalleOriginal).length > 0 || total !== totalOriginal || tocado
+      if (!exigir) return
+      const problema = validarLesiones(filasALesiones(filas, tipos, total), total, tipos.length > 0)
+      if (problema) lista.push(`${nombre}: ${problema}`)
+    }
     if (llegada) {
       revisarPar(llegada.lesionados, 'Lesionados de llegada')
+      revisarLesiones(
+        llegada.lesionados,
+        llegada.lesiones,
+        original?.recepcion.NovLlegadaCantLesionados ?? 0,
+        original?.recepcion.NovLlegadaLesionesDetalle,
+        'Lesionados de llegada',
+      )
       revisarPar(llegada.caidos, 'Caídos de llegada')
       revisarPar(llegada.agitados, 'Agitados de llegada')
       revisarUno(llegada.transporte, 'Fortuito en transporte')
@@ -290,20 +402,22 @@ export function CorregirNovedades({
       if (c.eliminar) return
       const n = `Registro de corral ${i + 1}`
       revisarPar(c.lesionados, `${n} · lesionados`)
+      const o = original?.corral.find((x) => x.spId === c.spId)
+      revisarLesiones(c.lesionados, c.lesiones, o?.CorralCantLesionados ?? 0, o?.CorralLesionesDetalle, `${n} · lesionados`)
       revisarPar(c.caidos, `${n} · caídos`)
       revisarPar(c.agitados, `${n} · agitados`)
       revisarUno(c.reposo, `${n} · muerto en reposo`)
     })
     return lista
-  }, [llegada, corral])
+  }, [llegada, corral, original, tipos])
 
   // --- Cómo quedan los tiquetes con lo escrito ---------------------------------------------
   const plan = useMemo(() => {
     if (!original || !llegada || errores.length > 0) return undefined
-    const nuevaRecepcion: Recepcion = { ...original.recepcion, ...cambiosDeLlegada(llegada) }
+    const nuevaRecepcion: Recepcion = { ...original.recepcion, ...cambiosDeLlegada(llegada, tipos) }
     const vigentes = corral.filter((c) => !c.eliminar)
     const suma = (campo: keyof NovedadCorral) =>
-      vigentes.reduce((s, c) => s + (Number(cambiosDeCorral(c)[campo] ?? 0) || 0), 0)
+      vigentes.reduce((s, c) => s + (Number(cambiosDeCorral(c, tipos)[campo] ?? 0) || 0), 0)
     const corralSumado: NovedadCorral | undefined =
       vigentes.length === 0
         ? undefined
@@ -336,15 +450,15 @@ export function CorregirNovedades({
     }).filter((f) => f.actuales > 0 || f.quedan > 0)
     const seCrean = filas.reduce((s, f) => s + Math.max(0, f.quedan - f.actuales), 0)
     return { nuevaRecepcion, corralSumado, aBorrar, filas, seCrean }
-  }, [original, llegada, corral, errores])
+  }, [original, llegada, corral, errores, tipos])
 
-  const cambiosRecepcion = original && llegada && errores.length === 0 ? cambiosDeLlegada(llegada) : undefined
+  const cambiosRecepcion = original && llegada && errores.length === 0 ? cambiosDeLlegada(llegada, tipos) : undefined
   const recepcionCambia = Boolean(original && cambiosRecepcion && hayCambios(original.recepcion, cambiosRecepcion))
   const corralQueCambia = original
     ? corral.filter((c) => {
         if (c.eliminar) return true
         const o = original.corral.find((x) => x.spId === c.spId)
-        return o ? hayCambios(o, cambiosDeCorral(c)) : false
+        return o ? hayCambios(o, cambiosDeCorral(c, tipos)) : false
       })
     : []
   const hayAlgoQueGuardar = recepcionCambia || corralQueCambia.length > 0
@@ -383,12 +497,18 @@ export function CorregirNovedades({
     try {
       // 1) Releer: si alguien cambió algo mientras se editaba, se avisa en vez de pisarlo.
       const [recFresca, corralFresco] = await Promise.all([obtenerRecepcionActual(spId), listarRegistrosNovedadCorral(spId)])
-      const recepcionMovida = hayCambios(recFresca, cambiosDeLlegada(formDeRecepcion(original.recepcion)))
+      const recepcionMovida =
+        hayCambios(recFresca, cambiosDeLlegada(formDeRecepcion(original.recepcion, tipos), tipos), true) ||
+        detalleNormalizado(recFresca.NovLlegadaLesionesDetalle) !== detalleNormalizado(original.recepcion.NovLlegadaLesionesDetalle)
       const corralMovido =
         corralFresco.length !== original.corral.length ||
         corralFresco.some((f) => {
           const o = original.corral.find((x) => x.spId === f.spId)
-          return !o || hayCambios(o, cambiosDeCorral(formDeCorral(f)))
+          return (
+            !o ||
+            hayCambios(o, cambiosDeCorral(formDeCorral(f, tipos), tipos), true) ||
+            detalleNormalizado(o.CorralLesionesDetalle) !== detalleNormalizado(f.CorralLesionesDetalle)
+          )
         })
       if (recepcionMovida || corralMovido) {
         setError('Alguien cambió las novedades de este lote mientras corregías. Cierra y vuelve a abrir "Corregir novedades" para ver los datos actuales.')
@@ -407,7 +527,7 @@ export function CorregirNovedades({
           await eliminarNovedadCorral(c.spId)
           await db.novedadesCorral.where('spId').equals(c.spId).delete()
         } else {
-          const cambios = cambiosDeCorral(c)
+          const cambios = cambiosDeCorral(c, tipos)
           await actualizarNovedadCorral(c.spId, cambios)
           await db.novedadesCorral.where('spId').equals(c.spId).modify(cambios)
         }
@@ -433,7 +553,10 @@ export function CorregirNovedades({
         Usuario: usuario.Title,
         Accion: 'Novedades corregidas',
         DetalleJson: JSON.stringify({
-          antes: { llegada: formDeRecepcion(original.recepcion), corral: original.corral.map(formDeCorral) },
+          antes: {
+            llegada: formDeRecepcion(original.recepcion, tipos),
+            corral: original.corral.map((c) => formDeCorral(c, tipos)),
+          },
           despues: { llegada, corral },
           tiquetesBorrados: plan.aBorrar.map((t) => `${t.GrupoNovedad} · ${t.TipoNovedad} #${t.NumeroAnimalEnLote}${t.Tiquete ? ` (${t.Tiquete})` : ''}`),
           tiquetesCreados: plan.seCrean,
@@ -460,7 +583,7 @@ export function CorregirNovedades({
           <p className="text-sm font-semibold text-slate-800">Corregir novedades y fortuitos</p>
           <p className="text-xs text-slate-500">
             Solo Administrador. "Benef. emergencia" es cuántos del total se beneficiaron de emergencia — solo esos (y los
-            fortuitos) generan tiquete. "Quitar" deja la novedad en 0.
+            fortuitos) generan tiquete. "Quitar" deja la novedad en 0. Debajo de "Lesionados" se corrige el tipo de lesión.
           </p>
         </div>
         <button type="button" onClick={onCerrar} disabled={guardando} className="text-xs font-medium text-slate-500 hover:text-brand-red">
@@ -479,6 +602,12 @@ export function CorregirNovedades({
               <Encabezado />
               <tbody>
                 <FilaPar nombre="Lesionados" par={llegada.lesionados} onPar={(p) => setLlegada({ ...llegada, lesionados: p })} />
+                <FilaTiposLesion
+                  par={llegada.lesionados}
+                  filas={llegada.lesiones}
+                  tipos={tipos}
+                  onFilas={(f) => setLlegada({ ...llegada, lesiones: f })}
+                />
                 <FilaPar nombre="Caídos" par={llegada.caidos} onPar={(p) => setLlegada({ ...llegada, caidos: p })} />
                 <FilaPar nombre="Agitados" par={llegada.agitados} onPar={(p) => setLlegada({ ...llegada, agitados: p })} />
               </tbody>
@@ -527,6 +656,7 @@ export function CorregirNovedades({
                       <Encabezado />
                       <tbody>
                         <FilaPar nombre="Lesionados" par={c.lesionados} onPar={(p) => actualizar({ lesionados: p })} />
+                        <FilaTiposLesion par={c.lesionados} filas={c.lesiones} tipos={tipos} onFilas={(f) => actualizar({ lesiones: f })} />
                         <FilaPar nombre="Caídos" par={c.caidos} onPar={(p) => actualizar({ caidos: p })} />
                         <FilaPar nombre="Agitados" par={c.agitados} onPar={(p) => actualizar({ agitados: p })} />
                         <FilaUno nombre="Muerto en reposo (fortuito)" valor={c.reposo} onValor={(v) => actualizar({ reposo: v })} />

@@ -141,10 +141,28 @@ async function crearConColumnasOpcionales(
   campos: Record<string, unknown>,
   opcionales: string[],
 ): Promise<{ id: string }> {
+  return conColumnasOpcionales((c) => createItem(lista, c), campos, opcionales)
+}
+
+/** Igual que crearConColumnasOpcionales(), pero para editar un registro que ya existe. */
+async function actualizarConColumnasOpcionales(
+  lista: 'Recepciones' | 'NovedadesCorral',
+  itemId: string,
+  campos: Record<string, unknown>,
+  opcionales: string[],
+): Promise<void> {
+  await conColumnasOpcionales((c) => updateItem(lista, itemId, c), campos, opcionales)
+}
+
+async function conColumnasOpcionales<T>(
+  operacion: (campos: Record<string, unknown>) => Promise<T>,
+  campos: Record<string, unknown>,
+  opcionales: string[],
+): Promise<T> {
   let actuales = { ...campos }
   for (;;) {
     try {
-      return await createItem(lista, actuales)
+      return await operacion(actuales)
     } catch (err) {
       const faltante = opcionales.find(
         (col) => actuales[col] !== undefined && new RegExp(col, 'i').test((err as Error).message),
@@ -1542,6 +1560,7 @@ export type CambiosNovedadesRecepcion = Partial<
     | 'FortuitoCantMuertoTransporte'
     | 'FortuitoMuertoDesembarque'
     | 'FortuitoCantMuertoDesembarque'
+    | 'NovLlegadaLesionesDetalle'
   >
 >
 
@@ -1556,7 +1575,8 @@ export async function actualizarNovedadesDeRecepcion(recepcionSpId: string, camb
     const nombreSP = (NOMBRE_SP_BENEFICIO_EMERGENCIA as Record<string, string>)[clave] ?? clave
     campos[nombreSP] = valor
   }
-  await updateItem('Recepciones', recepcionSpId, campos)
+  // Tipos de lesión: si la columna aún no existe en SharePoint, se guardan los conteos sin el desglose.
+  await actualizarConColumnasOpcionales('Recepciones', recepcionSpId, campos, ['NovLlegadaLesionesDetalle'])
 }
 
 /** Cada registro de Novedades en Corral del lote, por separado y con su spId (para poder editarlos). */
@@ -1600,7 +1620,7 @@ export async function listarRegistrosNovedadCorral(recepcionSpId: string): Promi
 }
 
 export async function actualizarNovedadCorral(spId: string, cambios: Partial<NovedadCorral>): Promise<void> {
-  await updateItem('NovedadesCorral', spId, cambios)
+  await actualizarConColumnasOpcionales('NovedadesCorral', spId, cambios as Record<string, unknown>, ['CorralLesionesDetalle'])
 }
 
 export async function eliminarNovedadCorral(spId: string): Promise<void> {
