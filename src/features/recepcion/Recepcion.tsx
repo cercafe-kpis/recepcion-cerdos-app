@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../../offline/db'
 import { sincronizar } from '../../offline/syncService'
 import { buscarRecepcionesPorConsecutivo } from '../../graph/lists'
 import { CampoCheckbox, CampoSelect, CampoTexto, SeccionFormulario } from '../../components/CamposFormulario'
+import { CampoBuscable } from '../../components/CampoBuscable'
 import { DetalleLesiones, FILAS_LESION_INICIALES, filasALesiones, type FilaLesion } from '../../components/DetalleLesiones'
 import { serializarLesiones, validarLesiones } from '../../utils/lesiones'
 import { recepcionSchema, type RecepcionFormInput, type RecepcionFormValues } from './recepcionSchema'
@@ -62,6 +63,11 @@ function formatearDecimal(valor: string): string {
   const conPunto = valor.replace(/,/g, '.').replace(/[^\d.]/g, '')
   const [entero, ...resto] = conPunto.split('.')
   return resto.length > 0 ? `${entero}.${resto.join('')}` : entero
+}
+
+/** Orden alfabético (en español) de las opciones de los campos con buscador. */
+function ordenar(a: { label: string }, b: { label: string }): number {
+  return a.label.localeCompare(b.label, 'es')
 }
 
 /** Un lote que ya existe con el mismo Consecutivo — ver buscarLoteExistente(). */
@@ -172,9 +178,12 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
   // coaccionado (Output) — ver el comentario en recepcionSchema.ts.
   const {
     register,
+    control,
     handleSubmit,
     watch,
     reset,
+    setValue,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<RecepcionFormInput, unknown, RecepcionFormValues>({
     resolver: zodResolver(recepcionSchema),
@@ -209,6 +218,12 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
     () => (asociadoSeleccionado ? granjas.filter((g) => g.AsociadoId === asociadoSeleccionado) : granjas),
     [granjas, asociadoSeleccionado],
   )
+
+  // Opciones de los 3 campos con buscador (2026-11-04, ver CampoBuscable.tsx), ordenadas
+  // alfabéticamente para que la lista sin filtrar también sea fácil de recorrer.
+  const opcionesAsociados = asociados.map((a) => ({ value: a.id, label: a.Title })).sort(ordenar)
+  const opcionesGranjas = granjasDelAsociado.map((g) => ({ value: g.id, label: g.Title })).sort(ordenar)
+  const opcionesVehiculos = vehiculos.map((v) => ({ value: v.id, label: v.Title })).sort(ordenar)
 
   async function onSubmit(valores: RecepcionFormValues) {
     setGuardando(true)
@@ -328,26 +343,71 @@ export function Recepcion({ usuario }: { usuario: Usuario }) {
         </SeccionFormulario>
 
         <SeccionFormulario titulo="Origen">
-          <CampoSelect
-            etiqueta="Asociado"
-            requerido
-            {...register('AsociadoId')}
-            error={errors.AsociadoId?.message}
-            opciones={asociados.map((a) => ({ value: a.id, label: a.Title }))}
+          {/* Asociado, Granja y Placa: lista desplegable CON buscador (2026-11-04) — ver
+              CampoBuscable.tsx. Guardan el mismo id que antes guardaba el <select>. */}
+          <Controller
+            control={control}
+            name="AsociadoId"
+            render={({ field }) => (
+              <CampoBuscable
+                etiqueta="Asociado"
+                requerido
+                name={field.name}
+                value={field.value ?? ''}
+                onBlur={field.onBlur}
+                onChange={(id) => {
+                  field.onChange(id)
+                  // Si la Granja elegida no es de este Asociado, se borra para no guardar una
+                  // combinación Asociado/Granja que no existe.
+                  const granjaId = getValues('GranjaId')
+                  const granja = granjas.find((g) => g.id === granjaId)
+                  if (granjaId && (!id || granja?.AsociadoId !== id)) setValue('GranjaId', '')
+                }}
+                error={errors.AsociadoId?.message}
+                opciones={opcionesAsociados}
+              />
+            )}
           />
-          <CampoSelect
-            etiqueta="Granja"
-            requerido
-            {...register('GranjaId')}
-            error={errors.GranjaId?.message}
-            opciones={granjasDelAsociado.map((g) => ({ value: g.id, label: g.Title }))}
+          <Controller
+            control={control}
+            name="GranjaId"
+            render={({ field }) => (
+              <CampoBuscable
+                etiqueta="Granja"
+                requerido
+                name={field.name}
+                value={field.value ?? ''}
+                onBlur={field.onBlur}
+                onChange={(id) => {
+                  field.onChange(id)
+                  // Si todavía no se eligió Asociado (la lista muestra todas las granjas), se
+                  // completa solo con el Asociado dueño de la granja elegida.
+                  const granja = granjas.find((g) => g.id === id)
+                  if (granja && !getValues('AsociadoId')) {
+                    setValue('AsociadoId', granja.AsociadoId, { shouldValidate: true })
+                  }
+                }}
+                error={errors.GranjaId?.message}
+                opciones={opcionesGranjas}
+              />
+            )}
           />
-          <CampoSelect
-            etiqueta="Placa del vehículo"
-            requerido
-            {...register('PlacaVehiculoId')}
-            error={errors.PlacaVehiculoId?.message}
-            opciones={vehiculos.map((v) => ({ value: v.id, label: v.Title }))}
+          <Controller
+            control={control}
+            name="PlacaVehiculoId"
+            render={({ field }) => (
+              <CampoBuscable
+                etiqueta="Placa del vehículo"
+                requerido
+                name={field.name}
+                value={field.value ?? ''}
+                onBlur={field.onBlur}
+                onChange={field.onChange}
+                error={errors.PlacaVehiculoId?.message}
+                opciones={opcionesVehiculos}
+                placeholder="Selecciona o escribe la placa…"
+              />
+            )}
           />
           <CampoTexto type="number" step="1" etiqueta="Número total de cerdos" requerido {...register('NumeroTotalCerdos')} error={errors.NumeroTotalCerdos?.message} />
           <CampoTexto
