@@ -396,6 +396,19 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
     return t.EstadoTiquete === 'Completo'
   }
 
+  /**
+   * Excepción al candado por tiquete de arriba (2026-11-05, a pedido de Nathalia): el perfil
+   * Auditor puede corregir el NÚMERO de tiquete y el DESTINO aunque ese tiquete ya esté completo,
+   * mientras el lote siga "En proceso". Una vez que se usa "Terminar proceso", vuelve a quedar
+   * bloqueado (solo Administrador sigue editando, por el candado de LOTE `soloLectura`). Factura
+   * (solo Fortuitos) sigue con el candado de filaSoloLectura(), y Supervisor no cambia.
+   */
+  function tiqueteYDestinoSoloLectura(t: ConsolidadoTiquete): boolean {
+    if (soloLectura) return true
+    if (usuario.Rol === 'Auditor') return false
+    return filaSoloLectura(t)
+  }
+
   const granja = useLiveQuery(() => (recepcion ? db.granjas.get(recepcion.GranjaId) : undefined), [recepcion])
   const asociado = useLiveQuery(() => (recepcion ? db.asociados.get(recepcion.AsociadoId) : undefined), [recepcion])
   const vehiculo = useLiveQuery(() => (recepcion ? db.vehiculos.get(recepcion.PlacaVehiculoId) : undefined), [recepcion])
@@ -2049,6 +2062,7 @@ export function Consolidado({ usuario }: { usuario: Usuario }) {
                       key={t.id}
                       tiquete={t}
                       soloLectura={filaSoloLectura(t)}
+                      tiqueteYDestinoSoloLectura={tiqueteYDestinoSoloLectura(t)}
                       // El botón "Eliminar" usa el candado de LOTE (soloLectura), no el de tiquete
                       // individual (filaSoloLectura) — a propósito: se puede querer borrar una
                       // novedad completa aunque ya tenga Tiquete/Destino cargados, mientras el lote
@@ -2099,6 +2113,7 @@ function tiqueteYaCompletado(t: ConsolidadoTiquete): boolean {
 function FilaTiquete({
   tiquete,
   soloLectura,
+  tiqueteYDestinoSoloLectura,
   puedeEliminar,
   deMas,
   eliminando,
@@ -2107,6 +2122,8 @@ function FilaTiquete({
 }: {
   tiquete: ConsolidadoTiquete
   soloLectura: boolean
+  /** Candado propio del número de tiquete y del destino — ver tiqueteYDestinoSoloLectura() en Consolidado. */
+  tiqueteYDestinoSoloLectura: boolean
   puedeEliminar: boolean
   /** true = sobra respecto al conteo actual de la Recepción / Novedades en Corral. */
   deMas: boolean
@@ -2132,7 +2149,7 @@ function FilaTiquete({
       <td className="px-3 py-2">
         <input
           value={numeroTiquete}
-          disabled={soloLectura}
+          disabled={tiqueteYDestinoSoloLectura}
           onChange={(e) => setNumeroTiquete(e.target.value)}
           onBlur={() => numeroTiquete !== (tiquete.Tiquete ?? '') && onGuardar({ Tiquete: numeroTiquete || undefined })}
           className="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-brand-navy focus:outline-none focus:ring-1 focus:ring-brand-navy disabled:bg-slate-50"
@@ -2142,7 +2159,7 @@ function FilaTiquete({
       <td className="px-3 py-2">
         <select
           value={destino}
-          disabled={soloLectura}
+          disabled={tiqueteYDestinoSoloLectura}
           onChange={(e) => {
             const nuevo = e.target.value as Destino | ''
             setDestino(nuevo)
